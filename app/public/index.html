@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MTG Cardmaker</title>
+  <link rel="stylesheet" href="/fonts/fonts.css">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="top">
+    <h1>MTG Cardmaker</h1>
+    <form id="search" autocomplete="off">
+      <input id="q" type="search" placeholder="Kartenname, z. B. Lightning Bolt" list="suggestions" required>
+      <datalist id="suggestions"></datalist>
+      <button type="submit">Suchen</button>
+    </form>
+  </header>
+
+  <main>
+    <section class="prints">
+      <div class="prints-head">
+        <h2 id="prints-title">Versionen</h2>
+        <label class="inline"><input type="checkbox" id="dedupe" checked> gleiche Artworks zusammenfassen</label>
+      </div>
+      <p id="prints-info" class="muted">Suche eine Karte, um alle Versionen mit normalem Rahmen zu sehen.</p>
+      <div id="grid" class="grid"></div>
+    </section>
+
+    <section class="editor" hidden id="editor">
+      <div class="preview">
+        <div class="canvases">
+          <figure>
+            <canvas id="card" width="1500" height="2100"></canvas>
+            <figcaption>Nachbau</figcaption>
+          </figure>
+          <figure id="orig-fig">
+            <img id="orig" alt="Original auf Scryfall">
+            <figcaption>Original (Scryfall)</figcaption>
+          </figure>
+        </div>
+        <p id="status" class="muted"></p>
+      </div>
+
+      <form class="options" id="options">
+        <fieldset>
+          <legend>Text</legend>
+          <label><input type="checkbox" id="opt-flavor" checked> Flavortext anzeigen</label>
+          <label><input type="checkbox" id="opt-flavorbar" checked> Trennlinie vor Flavortext (M15)</label>
+          <label><input type="checkbox" id="opt-reminder" checked> Reminder-Text anzeigen</label>
+          <label>Schriftgröße Regeltext
+            <select id="opt-size">
+              <option value="">automatisch</option>
+            </select>
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Rahmen</legend>
+          <label>Stil
+            <select id="opt-frame">
+              <option value="auto">wie Original</option>
+              <option value="m15">Modern (2015+)</option>
+              <option value="m2003">Modern (2003–2014)</option>
+              <option value="retro97">Retro (1997–2003)</option>
+              <option value="retro93">Retro (1993–1997)</option>
+            </select>
+          </label>
+          <label>Rand
+            <select id="opt-border">
+              <option value="auto">wie Original</option>
+              <option value="black">schwarz</option>
+              <option value="white">weiß</option>
+              <option value="silver">silber</option>
+              <option value="gold">gold</option>
+            </select>
+          </label>
+          <label id="face-wrap" hidden>Kartenseite
+            <select id="opt-face"></select>
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Artwork</legend>
+          <label>Zoom <input type="range" id="art-zoom" min="1" max="2" step="0.01" value="1"></label>
+          <label>Horizontal <input type="range" id="art-dx" min="-1" max="1" step="0.01" value="0"></label>
+          <label>Vertikal <input type="range" id="art-dy" min="-1" max="1" step="0.01" value="0"></label>
+          <button type="button" id="art-reset" class="secondary">Zurücksetzen</button>
+        </fieldset>
+        <fieldset>
+          <legend>Fußzeile</legend>
+          <label>Text rechts unten <input type="text" id="opt-footer" value="Proxy – not for sale"></label>
+        </fieldset>
+        <fieldset>
+          <legend>Export</legend>
+          <label>Auflösung
+            <select id="opt-scale">
+              <option value="1">1500 × 2100 (600 dpi)</option>
+              <option value="1.34">2010 × 2814 (≈800 dpi)</option>
+            </select>
+          </label>
+          <button type="button" id="download">PNG herunterladen</button>
+        </fieldset>
+        <p class="muted small" id="font-info"></p>
+      </form>
+    </section>
+  </main>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

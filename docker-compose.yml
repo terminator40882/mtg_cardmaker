@@ -1,0 +1,23 @@
+services:
+  cardmaker:
+    build: ./app
+    container_name: mtg-cardmaker
+    ports:
+      - "8080:8080"
+    environment:
+      # Scryfall verlangt einen aussagekräftigen User-Agent
+      SCRYFALL_USER_AGENT: "MTGCardmaker/0.1 (self-hosted)"
+    volumes:
+      # Cache für Scryfall-Daten, Artworks und Symbole
+      - cardmaker-data:/data
+      # Eigene Schriften (Beleren, MPlantin, ...) hier ablegen – siehe README
+      - ./app/fonts:/app/fonts:ro
+    restart: unless-stopped
+
+  # Platzhalter für den späteren Upscaling-Schritt (z. B. Real-ESRGAN).
+  # Der Server holt Artworks über /api/art/:id – dort wird das Upscaling eingehängt.
+  # upscaler:
+  #   image: ...
+
+volumes:
+  cardmaker-data:

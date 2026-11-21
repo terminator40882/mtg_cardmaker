@@ -1,0 +1,19 @@
+{
+  "name": "mtg-cardmaker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web-UI: MTG-Karte auf Scryfall suchen, Version wählen und als Replika mit eigenem Renderer nachbauen.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@fontsource/alegreya": "5.3.0",
+    "@fontsource/alegreya-sans": "5.3.0",
+    "@fontsource/crimson-pro": "5.3.0",
+    "express": "5.3.0"
+  }
+}

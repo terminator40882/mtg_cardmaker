@@ -33,7 +33,9 @@ const sortColors = (cols) => [...cols].sort((a, b) => ORDER.indexOf(a) - ORDER.i
  */
 export function frameColors(face) {
   const type = face.type_line || '';
-  const colors = sortColors(face.colors || []);
+  // Split-Hälften haben bei Scryfall kein "colors" -> aus den Manakosten ableiten
+  const fromCost = [...new Set((face.mana_cost || '').match(/[WUBRG]/g) || [])];
+  const colors = sortColors(face.colors && face.colors.length ? face.colors : fromCost);
   const isLand = /\bLand\b/.test(type);
   const isArtifact = /\bArtifact\b/.test(type);
   const cost = face.mana_cost || '';
@@ -62,5 +64,10 @@ export function frameColors(face) {
   const base = isArtifact ? 'A' : null;
   if (colors.length === 1) return [layer(base || colors[0], colors[0])];
   if (colors.length === 2 && hybrid) return [layer(base || colors[0], colors[0]), layer(base || colors[1], colors[1])];
+  // Zweifarbige Goldkarten: Goldrahmen, Innenkante links/rechts in den beiden Farben
+  if (colors.length === 2 && !isArtifact) {
+    const gold = PALETTES.M;
+    return colors.map((c) => ({ ...gold, band: PALETTES[c].band, key: `M${c}` }));
+  }
   return [layer(base || 'M', 'M')];
 }

@@ -28,6 +28,10 @@ export const LAYOUTS = {
     info: { y1: 1990, y2: 2031, x: 100, right: 1400, cap: 22 },
     holo: { cx: 750, cy: 1950, rx: 66, ry: 42 },
   },
+  // Planeswalker (ab 2015), 3 Fähigkeiten – vermessen an Teferi, Hero of Dominaria
+  pw: null,
+  // Planeswalker mit 4 Fähigkeiten – vermessen an Jace, the Mind Sculptor (A25)
+  pw4: null,
   // Modern (8th Edition 2003 – Magic 2014)
   m2003: {
     ...common,
@@ -86,6 +90,137 @@ export const LAYOUTS = {
     rules: { maxCap: 50, minCap: 16, centerShort: true },
     metrics: { lineHeight: 1.66, paraGap: 0.6, flavorGap: 1.0, flavorBar: null },
     info: { artistBaseline: 1936, artistCap: 33, artistAlign: 'left', artistX: 133, smallBaseline: 1977, smallCap: 17 },
+  },
+};
+
+LAYOUTS.pw = {
+  ...LAYOUTS.m15,
+  kind: 'pw',
+  art: { x: 95, y: 212, w: 1310, h: 1676, r: 44 },
+  // Scryfall-Art-Crop deckt nur den Bereich bis zur Typzeile ab
+  artFit: { x: 95, y: 212, w: 1310, h: 967 },
+  namePlate: { x: 83, y: 61, w: 1334, h: 133 },
+  typePlate: { x: 83, y: 1179, w: 1334, h: 116 },
+  nameText: { x: 121, right: 1386, baseline: 156, cap: 56, family: 'CMTitle' },
+  typeText: { x: 124, right: 1386, baseline: 1258, cap: 49, family: 'CMTitle' },
+  cost: { d: 60, gap: 4, right: 1386, cy: 128, shadow: { dx: -3, dy: 4 } },
+  setSym: { right: 1394, cy: 1238, h: 74, maxW: 150 },
+  pwBox: { x: 174, y: 1310, w: 1212, h: 576, r: 30 },
+  text: { x: 268, y: 1310, w: 1104, h: 576 },
+  pwIcon: { cx: 128, line: 182 },
+  shield: { cx: 1322, cy: 1909, w: 204, h: 106, cap: 50 },
+  // Fähigkeitstext max. 7 pt (Teferi: Versalhöhe 37,4 px gemessen)
+  rules: { maxCap: 37.4, minCap: 16, step: 48.1 / 18 },
+};
+LAYOUTS.pw4 = {
+  ...LAYOUTS.pw,
+  typePlate: { x: 83, y: 1042, w: 1334, h: 110 },
+  artFit: { x: 95, y: 212, w: 1310, h: 830 },
+  typeText: { x: 124, right: 1386, baseline: 1120, cap: 49, family: 'CMTitle' },
+  setSym: { right: 1394, cy: 1097, h: 74, maxW: 150 },
+  pwBox: { x: 174, y: 1175, w: 1212, h: 712, r: 30 },
+  text: { x: 268, y: 1175, w: 1104, h: 712 },
+};
+
+// Saga (ab Dominaria 2018): Text links, Artwork rechts – vermessen an History of Benalia
+LAYOUTS.saga = {
+  ...LAYOUTS.m15,
+  kind: 'saga',
+  band: { x: 92, y: 88, w: 1316, h: 1720 },
+  art: { x: 751, y: 233, w: 609, h: 1500 },
+  box: { x: 122, y: 233, w: 629, h: 1500 },
+  text: { x: 204, y: 233, w: 530, h: 1500 },
+  typePlate: { x: 98, y: 1789, w: 1304, h: 111 },
+  typeText: { x: 130, right: 1383, baseline: 1866, cap: 49, family: 'CMTitle' },
+  setSym: { right: 1384, cy: 1845, h: 74, maxW: 150 },
+  saga: { markerX: 124, trackX: 122, reminderX: 138, reminderH: 367 },
+  rules: { maxCap: 40.1, minCap: 16, step: 48.1 / 18 },
+};
+// Class (ab AFR 2021): Artwork links, Text rechts mit Level-Leisten – vermessen an Wizard Class
+LAYOUTS.class = {
+  ...LAYOUTS.m15,
+  kind: 'class',
+  band: { x: 92, y: 88, w: 1316, h: 1720 },
+  art: { x: 100, y: 233, w: 633, h: 1534 },
+  box: { x: 733, y: 233, w: 667, h: 1534 },
+  text: { x: 756, y: 233, w: 626, h: 1534 },
+  typePlate: { x: 98, y: 1789, w: 1304, h: 111 },
+  typeText: { x: 130, right: 1383, baseline: 1866, cap: 49, family: 'CMTitle' },
+  setSym: { right: 1384, cy: 1845, h: 74, maxW: 150 },
+  classBar: { h: 94 },
+  rules: { maxCap: 45.4, minCap: 16, step: 48.1 / 18 },
+};
+
+// Adventure (ab Eldraine 2019) – vermessen an Bonecrusher Giant
+LAYOUTS.adventure = {
+  ...LAYOUTS.m15,
+  kind: 'adventure',
+  adv: {
+    spine: 749,
+    nameBar: { x: 104, y: 1331, w: 645, h: 82 },
+    typeBar: { x: 104, y: 1419, w: 645, h: 82 },
+    nameText: { x: 124, right: 712, baseline: 1386, cap: 35, family: 'CMTitle' },
+    typeText: { x: 124, right: 730, baseline: 1478, cap: 35, family: 'CMTitle' },
+    cost: { d: 50, gap: 3, right: 712, cy: 1366, shadow: { dx: -2, dy: 3 } },
+    left: { x: 124, y: 1505, w: 605, h: 430 },
+    right: { x: 795, y: 1326, w: 578, h: 606 },
+  },
+  rules: { maxCap: 40.1, minCap: 16, step: 48.1 / 18 },
+};
+
+// ---- Querformat-Layouts (werden gedreht auf die Hochformat-Karte gezeichnet)
+// Koordinaten im Querformat 2100 × 1500.
+
+/** Eine Hälfte einer Split-Karte – vermessen an Expansion // Explosion (GRN) */
+function splitHalf(hx) {
+  return {
+    ...LAYOUTS.m15,
+    W: 2100,
+    H: 1500,
+    kind: 'half',
+    frame: { x: hx, y: 58, w: 925, h: 1384, r: 30 },
+    band: { x: hx + 28, y: 88, w: 869, h: 820 },
+    art: { x: hx + 53, y: 233, w: 820, h: 570 },
+    namePlate: { x: hx + 22, y: 100, w: 881, h: 125 },
+    typePlate: { x: hx + 22, y: 813, w: 881, h: 90 },
+    box: { x: hx + 50, y: 900, w: 825, h: 534 },
+    text: { x: hx + 72, y: 930, w: 781, h: 486 },
+    nameText: { x: hx + 72, right: hx + 895, baseline: 187, cap: 50, family: 'CMTitle' },
+    typeText: { x: hx + 72, right: hx + 880, baseline: 869, cap: 33, family: 'CMTitle' },
+    cost: { d: 72, gap: 5, right: hx + 895, cy: 163, shadow: { dx: -3, dy: 4 } },
+    setSym: { right: hx + 880, cy: 857, h: 52, maxW: 110 },
+    rules: { maxCap: 48.1, minCap: 16, step: 48.1 / 18 },
+  };
+}
+// Gemeinsame Sammlerinfo unten (Hochformat)
+const landscapeInfo = { ...LAYOUTS.m15.info, y1: 2004, y2: 2045 };
+LAYOUTS.split = { ...LAYOUTS.m15, kind: 'split', halves: [splitHalf(147), splitHalf(1112)], info: landscapeInfo };
+
+/** Battle (ab MOM 2023) – vermessen an Invasion of Zendikar */
+LAYOUTS.battle = {
+  ...LAYOUTS.m15,
+  kind: 'battle',
+  info: landscapeInfo,
+  land: {
+    ...LAYOUTS.m15,
+    W: 2100,
+    H: 1500,
+    kind: 'battleFace',
+    frame: { x: 145, y: 58, w: 1897, h: 1384, r: 70 },
+    art: { x: 175, y: 58, w: 1867, h: 1384 },
+    artFit: { x: 175, y: 205, w: 1867, h: 635 },
+    namePlate: { x: 217, y: 67, w: 1775, h: 125 },
+    typePlate: { x: 233, y: 867, w: 1759, h: 130 },
+    box: { x: 247, y: 1000, w: 1720, h: 442 },
+    text: { x: 275, y: 1012, w: 1585, h: 420 },
+    nameText: { x: 397, right: 1967, baseline: 155, cap: 52, family: 'CMTitle' },
+    typeText: { x: 275, right: 1967, baseline: 953, cap: 47, family: 'CMTitle' },
+    cost: { d: 70, gap: 5, right: 1967, cy: 130, shadow: { dx: -3, dy: 4 } },
+    setSym: { right: 1967, cy: 930, h: 74, maxW: 150 },
+    icon: { cx: 295, cy: 130 },
+    defense: { cx: 1975, cy: 1383, r: 80, cap: 50 },
+    backPT: { x: 1950, y: 1250 },
+    rules: { maxCap: 42.8, minCap: 16, step: 48.1 / 18 },
   },
 };
 

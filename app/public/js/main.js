@@ -1,6 +1,6 @@
 import * as api from './api.js';
 import { buildModel, renderCard, facesOf } from './render/render.js';
-import { setRulesScaleX } from './render/textlayout.js';
+import { setFontScales } from './render/textlayout.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { prints: [], card: null, set: null, printId: null, rendering: null, pending: false };
@@ -30,7 +30,9 @@ $('search').addEventListener('submit', async (e) => {
     state.prints = res.prints;
     $('q').value = res.name;
     renderGrid();
-    if (state.prints.length) selectPrint(visiblePrints()[0].id);
+    const wanted = new URLSearchParams(location.search).get('id');
+    if (wanted && !visiblePrints().some((p) => p.id === wanted)) { $('dedupe').checked = false; renderGrid(); }
+    if (state.prints.length) selectPrint(state.prints.some((p) => p.id === wanted) ? wanted : visiblePrints()[0].id);
   } catch (err) {
     $('prints-info').textContent = err.message;
   }
@@ -78,10 +80,12 @@ async function selectPrint(id) {
   $('status').textContent = 'Lade Karte …';
   try {
     let card = await api.card(id);
+    if (state.printId !== id) return; // inzwischen wurde eine andere Version gewählt
     // "The List"/Mystery-Booster-Reprints tragen Set & Nummer des Originals (z. B. "CLB-187")
     const m = /^(plst|plist|mb1|fmb1|pmb1)$/.test(card.set) && /^([A-Za-z0-9]+)-(.+)$/.exec(card.collector_number);
     if (m) card = { ...card, set: m[1].toLowerCase(), collector_number: m[2] };
     const set = await api.set(card.set).catch(() => null);
+    if (state.printId !== id) return;
     state.card = card;
     state.set = set;
     const faces = facesOf(card);
@@ -128,8 +132,7 @@ function currentOptions(scale = 1) {
 let fontsReady = null;
 async function deps() {
   fontsReady ||= api.fontStatus().then((st) => {
-    // Ersatzschrift (Crimson Pro) ist ca. 6 % breiter als MPlantin
-    setRulesScaleX(st.CMRules?.source === 'custom' ? 1 : 0.94);
+    setFontScales(Object.fromEntries(Object.entries(st).map(([fam, v]) => [fam, v.scaleX])));
   }).catch(() => {});
   await fontsReady;
   const [symbolMap, keywords] = await Promise.all([api.symbology(), api.catalog('keyword-abilities')]);
@@ -202,8 +205,12 @@ function escapeHtml(s) {
 }
 
 // Direktaufruf per URL: /?q=Lightning%20Bolt
-const initial = new URLSearchParams(location.search).get('q');
-if (initial) {
+// Direktaufruf: /?q=Name oder /?id=<Scryfall-ID>
+const params = new URLSearchParams(location.search);
+const initial = params.get('q');
+if (!initial && params.get('id')) {
+  api.card(params.get('id')).then((c) => { $('q').value = c.name; $('search').requestSubmit(); }).catch(() => {});
+} else if (initial) {
   $('q').value = initial;
   $('search').requestSubmit();
 }

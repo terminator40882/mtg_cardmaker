@@ -46,12 +46,18 @@ function frameTex(colors, L, kind = 'frame') {
   return c;
 }
 
-function fillFrame(ctx, L, colors, pathFn, kind) {
+function artPath(ctx, a) {
+  if (a.r) roundRect(ctx, a.x, a.y, a.w, a.h + a.r * 2, a.r);
+  else rect(ctx, a);
+}
+
+function fillFrame(ctx, L, colors, pathFn, kind, alpha = 1) {
   ctx.save();
   ctx.beginPath();
   pathFn();
-  rect(ctx, L.art);
+  artPath(ctx, L.art);
   ctx.clip('evenodd');
+  ctx.globalAlpha = alpha;
   ctx.drawImage(frameTex(colors, L, kind), 0, 0, L.W, L.H);
   ctx.restore();
 }
@@ -152,10 +158,36 @@ export function drawFrameLayer(ctx, L, pal, flags) {
   return drawM15Layer(ctx, L, pal, flags);
 }
 
+function drawPwLayer(ctx, L, pal) {
+  const f = L.frame;
+  fillFrame(ctx, L, pal.tex, () => roundRect(ctx, f.x, f.y, f.w, f.h, f.r));
+  // helle Zierlinie + dunkle Kante ums Artwork
+  ctx.save();
+  ctx.beginPath();
+  roundRect(ctx, f.x, f.y, f.w, f.h, f.r);
+  ctx.clip();
+  ctx.beginPath();
+  artPath(ctx, { ...L.art, x: L.art.x - 7, y: L.art.y - 7, w: L.art.w + 14, r: L.art.r + 7 });
+  ctx.lineWidth = 9;
+  ctx.strokeStyle = lighten(pal.band, 0.55);
+  ctx.stroke();
+  ctx.beginPath();
+  artPath(ctx, { ...L.art, x: L.art.x - 2, y: L.art.y - 2, w: L.art.w + 4, r: L.art.r + 2 });
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(15,15,15,0.9)';
+  ctx.stroke();
+  ctx.restore();
+  const cap = (b) => capsule(ctx, b, 20);
+  plate(ctx, L, L.namePlate, cap, { fill: pal.plate });
+  plate(ctx, L, L.typePlate, cap, { fill: pal.plate });
+}
+
 function drawM15Layer(ctx, L, pal, flags) {
+  if (L.kind === 'pw') return drawPwLayer(ctx, L, pal);
   const f = L.frame;
   // 1. strukturierte Rahmenfläche
-  fillFrame(ctx, L, pal.tex, () => roundRect(ctx, f.x, f.y, f.w, f.h, f.r));
+  fillFrame(ctx, L, pal.tex, () => roundRect(ctx, f.x, f.y, f.w, f.h, f.r), 'frame', pal.texAlpha ?? 1);
+  if (pal.variant === 'nyx') nyxLace(ctx, L, pal);
 
   // 2. einfarbige Innenkante um Artwork und Leisten
   ctx.save();
@@ -188,17 +220,24 @@ function drawM15Layer(ctx, L, pal, flags) {
 
 function textBox(ctx, L, pal, edge) {
   const b = L.box;
+  if (pal.variant !== 'devoid') {
+    ctx.save();
+    ctx.beginPath();
+    rect(ctx, b);
+    softShadow(ctx, 8, 0, 0.5);
+    ctx.fillStyle = pal.box;
+    ctx.fill();
+    ctx.restore();
+  }
   ctx.save();
   ctx.beginPath();
   rect(ctx, b);
-  softShadow(ctx, 8, 0, 0.5);
-  ctx.fillStyle = pal.box;
-  ctx.fill();
-  ctx.restore();
-  ctx.save();
-  ctx.beginPath();
-  rect(ctx, b);
+  if (pal.variant === 'devoid') {
+    // Devoid: Artwork scheint auch durchs Textfeld
+    ctx.globalAlpha = 0.55;
+  }
   fillTexture(ctx, pal.box, 'box', L.W, L.H, 5);
+  ctx.globalAlpha = 1;
   // feine Innenschattierung
   ctx.beginPath();
   rect(ctx, b);
@@ -323,6 +362,28 @@ function drawRetroLayer(ctx, L, pal, flags) {
     fillTexture(ctx, [darken(pal.retroBox, 0.1), pal.retroBox, lighten(pal.retroBox, 0.15)], 'box', L.W, L.H, 9);
     ctx.restore();
   }
+}
+
+/** Feine helle Netzstruktur für Nyx-Rahmen */
+function nyxLace(ctx, L, pal) {
+  const f = L.frame;
+  ctx.save();
+  ctx.beginPath();
+  roundRect(ctx, f.x, f.y, f.w, f.h, f.r);
+  rect(ctx, L.art);
+  ctx.clip('evenodd');
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = 2;
+  let seed = 11;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < 900; i++) {
+    const x = f.x + rnd() * f.w;
+    const y = f.y + rnd() * f.h;
+    ctx.beginPath();
+    ctx.arc(x, y, 6 + rnd() * 10, rnd() * 6, rnd() * 6 + 2.5);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /** Holo-Siegel (M15, selten/mythisch): halb ins Textfeld ragendes Oval. */

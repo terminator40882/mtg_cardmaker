@@ -7,21 +7,24 @@
 // gemessenen Versalhöhe der geladenen Schrift berechnet – so passt der Satz
 // mit den Originalschriften genauso wie mit Ersatzschriften.
 
-export const FONTS = { rules: 'CMRules', italic: 'CMRulesItalic', scaleX: 1 };
+export const FONTS = { rules: 'CMRules', italic: 'CMRulesItalic' };
 
 /**
- * Ersatzschriften laufen breiter als MPlantin. Mit scaleX < 1 wird der Regeltext
- * horizontal gestaucht, damit Zeilenumbrüche wie auf der echten Karte fallen.
+ * Horizontale Korrektur je Schrift: Ersatzschriften laufen schmaler/breiter als
+ * die Originale. Mit dem Faktor fallen Zeilenumbrüche wie auf der echten Karte.
  */
-export function setRulesScaleX(x) {
-  FONTS.scaleX = x;
+const SCALE = new Map();
+export function setFontScales(map) {
+  SCALE.clear();
+  for (const [fam, x] of Object.entries(map)) SCALE.set(fam, x || 1);
 }
+export const scaleOf = (family) => SCALE.get(family) || 1;
 
 export const METRICS = {
-  lineHeight: 1.5, // Grundlinienabstand
-  paraGap: 0.68, // zusätzlicher Abstand zwischen Fähigkeiten
-  flavorGap: 1.375, // zusätzlicher Abstand vor dem Flavortext
-  flavorBar: 1.125, // Position der Trennlinie unter der letzten Regelzeile
+  lineHeight: 1.545, // Grundlinienabstand
+  paraGap: 0.62, // zusätzlicher Abstand zwischen Fähigkeiten
+  flavorGap: 1.26, // zusätzlicher Abstand vor dem Flavortext
+  flavorBar: 1.12, // Position der Trennlinie unter der letzten Regelzeile
   symSize: 1.17, // Durchmesser Mana-Symbol im Text
   symDrop: 0.1, // Symbol ragt etwas unter die Grundlinie
   symGap: 0.08,
@@ -49,6 +52,7 @@ function fontFor(ctx, italic, cap) {
   const fam = italic ? FONTS.italic : FONTS.rules;
   return `${sizeForCap(ctx, fam, cap).toFixed(2)}px ${fam}`;
 }
+const famOf = (italic) => (italic ? FONTS.italic : FONTS.rules);
 
 function splitWords(atoms) {
   const words = [];
@@ -82,7 +86,7 @@ function measureWord(ctx, word, c) {
       w += p.w + p.gap;
     } else {
       ctx.font = fontFor(ctx, p.italic, c);
-      p.w = ctx.measureText(p.text).width * FONTS.scaleX;
+      p.w = ctx.measureText(p.text).width * scaleOf(famOf(p.italic));
       w += p.w;
     }
   }
@@ -92,7 +96,7 @@ function measureWord(ctx, word, c) {
 function layoutParagraph(ctx, para, c, width) {
   const words = splitWords(para.atoms);
   ctx.font = fontFor(ctx, para.kind === 'flavor', c);
-  const space = ctx.measureText(' ').width * FONTS.scaleX;
+  const space = ctx.measureText(' ').width * scaleOf(famOf(para.kind === 'flavor'));
   const lines = [];
   let line = { words: [], w: 0 };
   let overflow = false;
@@ -113,7 +117,7 @@ function layoutParagraph(ctx, para, c, width) {
 }
 
 /** Komplettes Layout für eine Versalhöhe c; Koordinaten relativ (y=0 = erste Grundlinie). */
-function layoutAll(ctx, paras, c, width, M = METRICS) {
+export function layoutAll(ctx, paras, c, width, M = METRICS) {
   const lh = c * M.lineHeight;
   const blocks = [];
   let baseline = 0;
@@ -151,7 +155,10 @@ export function fitText(ctx, paras, box, opts = {}) {
   const min = opts.minCap || 16;
   const M = { ...METRICS, ...(opts.metrics || {}) };
   if (opts.fixedCap) return place(layoutAll(ctx, paras, opts.fixedCap, box.w, M), box, opts);
-  for (let c = max; c >= min; c -= 0.25) {
+  // Gedruckte Karten verkleinern den Regeltext in 0,5-pt-Schritten ausgehend
+  // von 9 pt (= maxCap); am Questing-Beast-Scan exakt 7,0 pt nachgemessen.
+  const step = opts.step || max / 18;
+  for (let c = max; c >= min; c -= step) {
     const lay = layoutAll(ctx, paras, c, box.w, M);
     if (lay.overflow || lay.height > box.h) continue;
     const placed = place(lay, box, opts);
@@ -160,9 +167,16 @@ export function fitText(ctx, paras, box, opts = {}) {
   return place(layoutAll(ctx, paras, min, box.w, M), box, opts);
 }
 
-function place(lay, box, opts) {
+export function place(lay, box, opts) {
   // vertikal zentrieren (echte Karten zentrieren den Regeltext im Textfeld)
-  const offset = opts.align === 'top' ? box.y - lay.visTop : box.y + (box.h - lay.height) / 2 - lay.visTop;
+  let offset = opts.align === 'top' ? box.y - lay.visTop : box.y + (box.h - lay.height) / 2 - lay.visTop;
+  // Würde der zentrierte Block unten bis in die Höhe der P/T-Box reichen, rückt er
+  // nach oben (soweit oben Luft ist) – so gemessen an gedruckten Kreaturen.
+  if (opts.exclude) {
+    const over = lay.visBottom + offset - (opts.exclude.y + (opts.exclude.tolerance ?? 6));
+    const slack = lay.visTop + offset - box.y;
+    if (over > 0 && slack > 0) offset -= Math.min(over, slack);
+  }
   lay.offset = offset;
   lay.box = box;
   lay.collides = false;
@@ -200,10 +214,11 @@ export function drawText(ctx, lay, symbols, opts = {}) {
             x += p.w + p.gap;
           } else {
             ctx.font = fontFor(ctx, p.italic, cap);
-            if (FONTS.scaleX !== 1) {
+            const sx = scaleOf(famOf(p.italic));
+            if (sx !== 1) {
               ctx.save();
               ctx.translate(x, by);
-              ctx.scale(FONTS.scaleX, 1);
+              ctx.scale(sx, 1);
               ctx.fillText(p.text, 0, 0);
               ctx.restore();
             } else {
@@ -270,14 +285,15 @@ function drawFlavorBar(ctx, x, y, w, c) {
  */
 export function drawFittedLine(ctx, text, family, cap, x, baseline, maxW, opts = {}) {
   const size0 = sizeForCap(ctx, family, cap);
+  const base = scaleOf(family);
   let s = size0;
   let w;
-  let sx = 1;
+  let sx = base;
   for (; s > size0 * 0.5; s -= 0.5) {
     ctx.font = `${s}px ${family}`;
     w = ctx.measureText(text).width;
-    if (w <= maxW) { sx = 1; break; }
-    if (w * (opts.minScaleX ?? 0.88) <= maxW) { sx = maxW / w; break; }
+    if (w * base <= maxW) { sx = base; break; }
+    if (w * base * (opts.minScaleX ?? 0.88) <= maxW) { sx = maxW / w; break; }
   }
   ctx.save();
   ctx.font = `${s}px ${family}`;

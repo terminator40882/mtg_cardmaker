@@ -1,7 +1,9 @@
 // Schriftverwaltung. Die echten Karten-Schriften (Beleren, MPlantin, ...) sind
 // proprietär und werden daher NICHT mitgeliefert. Liegen sie im Ordner FONTS_DIR,
 // werden sie automatisch verwendet; sonst greifen frei lizenzierte Ersatzschriften,
-// die per npm lokal installiert sind (keine CDNs).
+// die per npm lokal installiert sind (keine CDNs). Die Auswahl (Tinos für MPlantin,
+// PT Serif Bold für Beleren) wurde per Pixel-Korrelation gegen Kartenscans aus
+// ~90 freien Schriften ermittelt.
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,13 +17,14 @@ const LATIN_EXT = 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02
 
 // family: Name im Canvas; custom: akzeptierte Dateinamen (klein, nur a-z0-9); fallback: fontsource-Datei
 const ROLES = [
-  { family: 'CMTitle', custom: ['belerenbold', 'beleren2016bold', 'belerenbold2016', 'beleren'], fallback: ['alegreya', '700-normal'] },
-  { family: 'CMRules', custom: ['mplantin', 'mplantinregular', 'plantinmtpro', 'plantinmtproregular'], fallback: ['crimson-pro', '500-normal'] },
-  { family: 'CMRulesItalic', custom: ['mplantinitalic', 'mplantinit', 'plantinmtproitalic'], fallback: ['crimson-pro', '500-italic'] },
-  { family: 'CMInfo', custom: ['gothammedium', 'relaymedium', 'relay'], fallback: ['alegreya-sans', '500-normal'] },
-  { family: 'CMArtist', custom: ['belerensmallcaps', 'beleren2016smallcapsbold', 'belerensmallcapsbold'], fallback: ['alegreya-sans', '700-normal'] },
-  { family: 'CMRetroTitle', custom: ['goudymedieval', 'goudymediaeval'], fallback: ['alegreya', '500-normal'] },
-  { family: 'CMMatrix', custom: ['matrixbold', 'matrixb', 'matrix'], fallback: ['alegreya', '700-normal'] },
+  // scaleX: horizontale Korrektur der Ersatzschrift, per Pixel-Vergleich mit Kartenscans ermittelt
+  { family: 'CMTitle', custom: ['belerenbold', 'beleren2016bold', 'belerenbold2016', 'beleren'], fallback: ['pt-serif', '700-normal'], scaleX: 0.93 },
+  { family: 'CMRules', custom: ['mplantin', 'mplantinregular', 'plantinmtpro', 'plantinmtproregular'], fallback: ['tinos', '400-normal'], scaleX: 1.115 },
+  { family: 'CMRulesItalic', custom: ['mplantinitalic', 'mplantinit', 'plantinmtproitalic'], fallback: ['tinos', '400-italic'], scaleX: 1.054 },
+  { family: 'CMInfo', custom: ['gothammedium', 'relaymedium', 'relay'], fallback: ['alegreya-sans', '500-normal'], scaleX: 1 },
+  { family: 'CMArtist', custom: ['belerensmallcaps', 'beleren2016smallcapsbold', 'belerensmallcapsbold'], fallback: ['alegreya-sans', '700-normal'], scaleX: 1 },
+  { family: 'CMRetroTitle', custom: ['goudymedieval', 'goudymediaeval'], fallback: ['alegreya', '500-normal'], scaleX: 1 },
+  { family: 'CMMatrix', custom: ['matrixbold', 'matrixb', 'matrix'], fallback: ['pt-serif', '700-normal'], scaleX: 0.93 },
 ];
 
 const FORMAT = { ttf: 'truetype', otf: 'opentype', woff: 'woff', woff2: 'woff2' };
@@ -51,13 +54,13 @@ export async function fontCss() {
     if (hit) {
       const ext = path.extname(hit).slice(1).toLowerCase();
       css.push(`@font-face{font-family:'${role.family}';src:url('/fonts/custom/${encodeURIComponent(hit)}') format('${FORMAT[ext]}');font-display:block;}`);
-      status[role.family] = { source: 'custom', file: hit };
+      status[role.family] = { source: 'custom', file: hit, scaleX: 1 };
     } else {
       const [pkg, variant] = role.fallback;
       for (const [subset, range] of [['latin', LATIN], ['latin-ext', LATIN_EXT]]) {
         css.push(`@font-face{font-family:'${role.family}';src:url('/fonts/fallback/${pkg}/files/${pkg}-${subset}-${variant}.woff2') format('woff2');unicode-range:${range};font-display:block;}`);
       }
-      status[role.family] = { source: 'fallback', file: `${pkg} ${variant}` };
+      status[role.family] = { source: 'fallback', file: `${pkg} ${variant}`, scaleX: role.scaleX };
     }
   }
   return { css: css.join('\n'), status };

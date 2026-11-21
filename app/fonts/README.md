@@ -1,8 +1,10 @@
 # Eigene Schriften
 
 Die Schriften echter Magic-Karten sind proprietär und werden deshalb nicht mitgeliefert.
-Ohne eigene Dateien nutzt die App frei lizenzierte Ersatzschriften (Alegreya, Crimson Pro,
-Alegreya Sans), die per npm lokal im Image liegen.
+Ohne eigene Dateien nutzt die App frei lizenzierte Ersatzschriften, die per npm lokal im Image liegen:
+Tinos (Regeltext), PT Serif Bold (Name/Typzeile), Alegreya (Retro-Titel), Alegreya Sans (Sammlerinfo).
+Sie wurden per Pixel-Vergleich mit Kartenscans ausgewählt und in der Laufweite korrigiert.
+Eigene Originalschriften werden automatisch ohne Korrektur verwendet.
 
 Lege hier (`.ttf`, `.otf`, `.woff` oder `.woff2`) Dateien mit einem dieser Namen ab
 (Groß-/Kleinschreibung, Leer- und Sonderzeichen egal), dann werden sie automatisch verwendet:

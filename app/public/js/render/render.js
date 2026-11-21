@@ -6,11 +6,16 @@ import { parseRules, parseFlavor, symbolsIn, smartQuotes } from './textparse.js'
 import { fitText, drawText, drawSymbol, drawFittedLine, sizeForCap } from './textlayout.js';
 import { drawSetSymbol } from './setsymbol.js';
 import { loadImage, loadSymbols, ensureFonts } from './assets.js';
-import { luminance } from './textures.js';
+import { luminance, mix } from './textures.js';
+import { drawSagaText, drawClassText } from './columns.js';
+import { drawAdventure } from './adventure.js';
+import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT } from './dfc.js';
+import { renderLandscape } from './landscape.js';
+import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield } from './planeswalker.js';
 
 export { W, H };
 
-const FACE_LAYOUTS = new Set(['transform', 'modal_dfc', 'double_faced', 'flip', 'meld', 'adventure', 'split', 'battle']);
+const FACE_LAYOUTS = new Set(['transform', 'modal_dfc', 'double_faced', 'flip', 'meld', 'battle']);
 
 export function facesOf(card) {
   if (card.card_faces && FACE_LAYOUTS.has(card.layout)) return card.card_faces;
@@ -24,7 +29,8 @@ export function facesOf(card) {
 export function buildModel(card, set, opts) {
   const faces = facesOf(card);
   const faceIdx = Math.min(opts.face || 0, faces.length - 1);
-  const f = faces[faceIdx];
+  // Adventure/Split: eine Kartenseite mit mehreren Hälften -> Hauptteil als "Seite"
+  const f = (card.layout === 'adventure' || card.layout === 'split') && card.card_faces ? card.card_faces[0] : faces[faceIdx];
   const pick = (k) => f[k] ?? card[k];
   const type = pick('type_line') || '';
   const loyalty = f.loyalty ?? (faces.length === 1 ? card.loyalty : null);
@@ -43,7 +49,22 @@ export function buildModel(card, set, opts) {
     produced_mana: card.produced_mana || [],
     artist: f.artist || card.artist || '',
   };
-  const layoutName = opts.frame && opts.frame !== 'auto' ? opts.frame : layoutForFrame(card.frame);
+  let layoutName = opts.frame && opts.frame !== 'auto' ? opts.frame : layoutForFrame(card.frame);
+  const isPw = loyalty != null && /\bPlaneswalker\b/.test(type);
+  if (layoutName === 'm15' && isPw) {
+    const abilities = (face.oracle_text || '').split('\n').filter(Boolean).length;
+    layoutName = abilities >= 4 ? 'pw4' : 'pw';
+  } else if (layoutName === 'm15' && card.layout === 'saga') {
+    layoutName = 'saga';
+  } else if (layoutName === 'm15' && card.layout === 'class') {
+    layoutName = 'class';
+  } else if (layoutName === 'm15' && card.layout === 'split' && card.card_faces?.length === 2) {
+    layoutName = 'split';
+  } else if (layoutName === 'm15' && faceIdx === 0 && /\bBattle\b/.test(card.card_faces?.[0]?.type_line || '')) {
+    layoutName = 'battle';
+  } else if (layoutName === 'm15' && card.layout === 'adventure') {
+    layoutName = 'adventure';
+  }
   const border = opts.border && opts.border !== 'auto' ? opts.border : card.border_color;
   return {
     card,
@@ -53,9 +74,10 @@ export function buildModel(card, set, opts) {
     layout: LAYOUTS[layoutName] || LAYOUTS.m15,
     borderColor: BORDER_COLORS[border] || BORDER_COLORS.black,
     lightBorder: border === 'white' || border === 'silver' || border === 'gold' || border === 'yellow',
-    palettes: frameColors(face),
+    palettes: frameVariant(frameColors(face), card, type),
     flags: {
-      legendary: /\bLegendary\b/.test(type),
+      // Legendary-Krone gibt es erst ab Dominaria (2018)
+      legendary: /\bLegendary\b/.test(type) && (card.released_at || '') >= '2018-04-27',
       pt: face.power != null && face.toughness != null,
       vehicle: /\bVehicle\b/.test(type),
       planeswalker: loyalty != null && /\bPlaneswalker\b/.test(type),
@@ -66,32 +88,75 @@ export function buildModel(card, set, opts) {
   };
 }
 
-function drawArt(ctx, img, box, adj = {}) {
+/**
+ * Rahmen-Varianten über die Struktur-Farben:
+ * Snow (eisig-weiß), Nyx (helle Spitzenstruktur, ab Theros Beyond Death), Devoid (durchscheinend).
+ */
+function frameVariant(palettes, card, type) {
+  const fx = card.frame_effects || [];
+  const modern = card.frame === '2015' || card.frame === 'future';
+  const snow = fx.includes('snow');
+  const nyx = fx.includes('nyxtouched') || (modern && /\bEnchantment\b/.test(type) && /\b(Creature|Artifact)\b/.test(type) && (card.released_at || '') >= '2020-01-24');
+  const devoid = (card.keywords || []).includes('Devoid');
+  return palettes.map((p) => {
+    if (snow) return { ...p, tex: ['#a9b9c6', '#e3eaef', '#ffffff'], variant: 'snow' };
+    if (nyx) return { ...p, tex: p.tex.map((c) => mix(c, '#ffffff', 0.5)), variant: 'nyx' };
+    if (devoid) return { ...p, texAlpha: 0.35, variant: 'devoid' };
+    return p;
+  });
+}
+
+function placeArt(img, box, adj = {}) {
+  const zoom = adj.zoom || 1;
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  const sc = Math.max(box.w / iw, box.h / ih) * zoom;
+  const dw = iw * sc;
+  const dh = ih * sc;
+  return {
+    x: box.x + (box.w - dw) / 2 + (adj.dx || 0) * box.w * 0.5,
+    y: box.y + (box.h - dh) / 2 + (adj.dy || 0) * box.h * 0.5,
+    w: dw,
+    h: dh,
+  };
+}
+
+/**
+ * Zeichnet das Artwork. clip = sichtbares Fenster, fit = Bereich, den der
+ * Scryfall-Crop abdeckt (bei Planeswalkern nur bis zur Typzeile). Unterhalb
+ * wird das Bild gespiegelt und weichgezeichnet fortgesetzt.
+ */
+export function drawArt(ctx, img, clip, adj = {}, fit = clip) {
   ctx.save();
   ctx.beginPath();
-  ctx.rect(box.x, box.y, box.w, box.h);
+  if (clip.r) roundRect(ctx, clip.x, clip.y, clip.w, clip.h + clip.r * 2, clip.r);
+  else ctx.rect(clip.x, clip.y, clip.w, clip.h);
   ctx.clip();
   ctx.fillStyle = '#111';
-  ctx.fillRect(box.x, box.y, box.w, box.h);
+  ctx.fillRect(clip.x, clip.y, clip.w, clip.h);
   if (img) {
-    const zoom = adj.zoom || 1;
-    const s = Math.max(box.w / img.naturalWidth, box.h / img.naturalHeight) * zoom;
-    const dw = img.naturalWidth * s;
-    const dh = img.naturalHeight * s;
-    const x = box.x + (box.w - dw) / 2 + (adj.dx || 0) * box.w * 0.5;
-    const y = box.y + (box.h - dh) / 2 + (adj.dy || 0) * box.h * 0.5;
+    const p = placeArt(img, fit, adj);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, x, y, dw, dh);
+    const bottom = p.y + p.h;
+    if (bottom < clip.y + clip.h) {
+      ctx.save();
+      ctx.filter = 'blur(14px)';
+      ctx.translate(0, bottom * 2);
+      ctx.scale(1, -1);
+      ctx.drawImage(img, p.x, p.y, p.w, p.h);
+      ctx.restore();
+    }
+    ctx.drawImage(img, p.x, p.y, p.w, p.h);
   }
   ctx.restore();
 }
 
-function costWidth(codes, c) {
+export function costWidth(codes, c) {
   return codes.length ? codes.length * c.d + (codes.length - 1) * c.gap : 0;
 }
 
-function drawCost(ctx, codes, symbols, c) {
+export function drawCost(ctx, codes, symbols, c) {
   let x = c.right - costWidth(codes, c);
   for (const code of codes) {
     drawSymbol(ctx, symbols, code, x, c.cy - c.d / 2, c.d, c.shadow ? { ...c.shadow, color: 'rgba(0,0,0,0.95)' } : null);
@@ -170,7 +235,7 @@ function collectorLine(model) {
   return /^\d+$/.test(cn) ? cn.padStart(3, '0') : cn;
 }
 
-function drawInfo(ctx, model) {
+export function drawInfo(ctx, model) {
   const L = model.layout;
   const I = L.info;
   const { card, face, opts } = model;
@@ -230,17 +295,19 @@ function drawInfo(ctx, model) {
   ctx.restore();
 }
 
-function drawFramesComposite(ctx, model, scale) {
-  const { layout: L, palettes, flags } = model;
+/**
+ * Zeichnet die Rahmenebene. Bei zwei Paletten (Hybrid, zweifarbige Länder/Gold)
+ * werden zwei Ebenen mit weichem Übergang in der Mitte des Rahmens überblendet.
+ */
+export function drawFramesComposite(ctx, L, palettes, flags, scale) {
   if (palettes.length === 1) {
     drawFrameLayer(ctx, L, palettes[0], flags);
     return;
   }
-  // Hybrid / zweifarbiges Land: zwei Ebenen mit weichem Übergang in der Mitte
   const make = (pal) => {
     const c = document.createElement('canvas');
-    c.width = Math.round(W * scale);
-    c.height = Math.round(H * scale);
+    c.width = Math.round(L.W * scale);
+    c.height = Math.round(L.H * scale);
     const x = c.getContext('2d');
     x.scale(scale, scale);
     drawFrameLayer(x, L, pal, flags);
@@ -251,16 +318,14 @@ function drawFramesComposite(ctx, model, scale) {
   const bx = b.getContext('2d');
   bx.setTransform(1, 0, 0, 1, 0, 0);
   bx.globalCompositeOperation = 'destination-in';
-  const g = bx.createLinearGradient(b.width * 0.4, 0, b.width * 0.6, 0);
+  const f = L.frame;
+  const g = bx.createLinearGradient((f.x + f.w * 0.4) * scale, 0, (f.x + f.w * 0.6) * scale, 0);
   g.addColorStop(0, 'rgba(0,0,0,0)');
   g.addColorStop(1, 'rgba(0,0,0,1)');
   bx.fillStyle = g;
   bx.fillRect(0, 0, b.width, b.height);
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(a, 0, 0);
-  ctx.drawImage(b, 0, 0);
-  ctx.restore();
+  ctx.drawImage(a, 0, 0, L.W, L.H);
+  ctx.drawImage(b, 0, 0, L.W, L.H);
 }
 
 /** Hauptfunktion: zeichnet die Karte auf ein Canvas. */
@@ -280,7 +345,8 @@ export async function renderCard(canvas, model, deps) {
     planeswalker: flags.planeswalker && !retroLayout,
   });
   const flavorParas = opts.showFlavor ? parseFlavor(face.flavor_text) : [];
-  const codes = symbolsIn(face.mana_cost, face.oracle_text);
+  const codes = symbolsIn(face.mana_cost, face.oracle_text,
+    ...(model.card.card_faces || []).flatMap((f) => [f.mana_cost, f.oracle_text]));
   const basicSym = flags.basic && flavorParas.length === 0 ? basicLandSymbol(face) : null;
   if (basicSym) codes.push(basicSym);
 
@@ -305,11 +371,24 @@ export async function renderCard(canvas, model, deps) {
   ctx.fillStyle = model.borderColor;
   ctx.fillRect(0, 0, W, H);
 
-  drawArt(ctx, art, L.art, opts.art);
-  drawFramesComposite(ctx, model, scale);
+  if (L.kind === 'split' || L.kind === 'battle') {
+    model.textCap = renderLandscape(ctx, model, { art, setIcon, symbols, keywords, scale });
+    ctx.restore();
+    return model;
+  }
+
+  if (model.palettes[0].variant === 'devoid' && L.style === 'm15') {
+    // Devoid: Artwork scheint durch den ganzen Rahmen
+    ctx.save();
+    ctx.filter = 'blur(3px)';
+    drawArt(ctx, art, L.frame, opts.art, L.artFit || L.art);
+    ctx.restore();
+  }
+  drawArt(ctx, art, L.art, opts.art, L.artFit || L.art);
+  drawFramesComposite(ctx, L, model.palettes, flags, scale);
 
   // Artwork-Kontur
-  if (L.style === 'm15') {
+  if (L.style === 'm15' && L.kind !== 'pw') {
     ctx.save();
     ctx.lineWidth = 4;
     ctx.strokeStyle = 'rgba(10,10,10,0.9)';
@@ -326,8 +405,11 @@ export async function renderCard(canvas, model, deps) {
   const cw = costWidth(costCodes, L.cost);
   drawCost(ctx, costCodes, symbols, L.cost);
   const N = L.nameText;
-  drawFittedLine(ctx, smartQuotes(face.name), N.family, N.cap, N.x, N.baseline,
-    N.right - N.x - cw - (cw ? 20 : 0), { color: headColor, shadow: headShadow });
+  // Doppelseitige Karten: Symbol vor dem Namen (nur moderne Rahmen)
+  const dfc = L.style === 'm15' ? dfcKind(model.card) : null;
+  const nameShift = dfc ? drawDfcIcon(ctx, dfc, model.faceIdx === 1, model.card.frame_effects, L.cost.cy + 1) : 0;
+  drawFittedLine(ctx, smartQuotes(face.name), N.family, N.cap, N.x + nameShift, N.baseline,
+    N.right - N.x - nameShift - cw - (cw ? 20 : 0), { color: headColor, shadow: headShadow });
 
   // Typzeile + Set-Symbol
   const plainSymbol = (model.card.released_at || '9999') < '1998-06-01';
@@ -338,10 +420,33 @@ export async function renderCard(canvas, model, deps) {
 
   // Regeltext
   let textBox = { ...L.text };
+  if (dfc === 'mdfc' && model.card.card_faces?.length === 2) {
+    drawMdfcTab(ctx, model.card.card_faces[1 - model.faceIdx], model.faceIdx === 1, symbols, model.card.color_identity);
+    textBox = { ...textBox, h: textBox.h - 80 };
+  }
+  if (dfc === 'transform' && model.faceIdx === 0 && model.card.card_faces?.length === 2 && L.ptPlate) {
+    drawBackPT(ctx, model.card.card_faces[1], L.ptPlate.x + L.ptPlate.w - 8, L.ptPlate.y - 46);
+  }
   if (flags.planeswalker && !retroLayout) textBox = { ...textBox, x: textBox.x + 120, w: textBox.w - 120 };
   const paras = [...rulesParas, ...flavorParas];
-  const ptZone = (flags.pt || flags.planeswalker) && L.ptPlate ? { x: L.ptPlate.x - 12, y: L.ptPlate.y - 6 } : null;
-  if (basicSym) {
+  let ptZone = (flags.pt || flags.planeswalker) && L.ptPlate ? { x: L.ptPlate.x - 12, y: L.ptPlate.y } : null;
+  if (ptZone && dfc === 'transform' && model.faceIdx === 0 && model.card.card_faces?.[1]?.power != null) {
+    // Platz für die kleine Rückseiten-P/T rechts über der P/T-Box
+    ptZone = { x: L.ptPlate.x + L.ptPlate.w - 120, y: L.ptPlate.y - 80, tolerance: 60 };
+  }
+  if (L.kind === 'adventure') {
+    model.textCap = drawAdventure(ctx, model, L, model.palettes[0], symbols, keywords, ptZone);
+  } else if (L.kind === 'saga') {
+    model.textCap = drawSagaText(ctx, model, L, model.palettes[0], symbols, keywords);
+  } else if (L.kind === 'class') {
+    model.textCap = drawClassText(ctx, model, L, model.palettes[0], symbols, keywords);
+  } else if (L.kind === 'pw') {
+    const pw = layoutPlaneswalker(ctx, rulesParas, L, { fixedCap: opts.fontCap || null });
+    if (pw) {
+      drawPlaneswalkerText(ctx, pw, L, model.palettes[0], symbols);
+      model.textCap = pw.cap;
+    }
+  } else if (basicSym) {
     const d = Math.min(L.text.h * 0.6, 330);
     drawSymbol(ctx, symbols, basicSym, L.text.x + L.text.w / 2 - d / 2, L.text.y + L.text.h / 2 - d / 2, d);
   } else if (paras.length) {
@@ -359,7 +464,9 @@ export async function renderCard(canvas, model, deps) {
   }
 
   // P/T bzw. Loyalität
-  if (flags.planeswalker && L.ptPlate) {
+  if (L.kind === 'pw') {
+    drawPwShield(ctx, face.loyalty, L.shield);
+  } else if (flags.planeswalker && L.ptPlate) {
     drawLoyaltyShield(ctx, face.loyalty, L);
   } else if (flags.pt || flags.planeswalker) {
     const pt = flags.planeswalker ? String(face.loyalty) : `${face.power}/${face.toughness}`;

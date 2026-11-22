@@ -141,7 +141,7 @@ LAYOUTS.saga = {
   typeText: { x: 124, right: 1383, baseline: 1866, cap: 49, family: 'CMTitle' },
   setSym: { right: 1384, cy: 1845, h: 74, maxW: 150 },
   saga: { markerX: 124, trackX: 122, reminderX: 138, reminderH: 367 },
-  rules: { maxCap: 40.1, minCap: 16, step: 48.1 / 18 },
+  rules: { maxCap: 48.1, minCap: 16, step: 48.1 / 18 },
 };
 // Class (ab AFR 2021): Artwork links, Text rechts mit Level-Leisten – vermessen an Wizard Class
 LAYOUTS.class = {
@@ -155,7 +155,7 @@ LAYOUTS.class = {
   typeText: { x: 124, right: 1383, baseline: 1866, cap: 49, family: 'CMTitle' },
   setSym: { right: 1384, cy: 1845, h: 74, maxW: 150 },
   classBar: { h: 94 },
-  rules: { maxCap: 45.4, minCap: 16, step: 48.1 / 18 },
+  rules: { maxCap: 48.1, minCap: 16, step: 48.1 / 18 },
 };
 
 // Adventure (ab Eldraine 2019) – vermessen an Bonecrusher Giant

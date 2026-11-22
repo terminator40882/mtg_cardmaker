@@ -57,7 +57,8 @@ export function buildModel(card, set, opts) {
     ? (card.printed.find((p) => p.name === face.name) || card.printed[faceIdx] || null) : null;
   // Plausibilitätsprüfung: MTGJSON ordnet vereinzelt den Text einer anderen Karte zu
   // (alte Karten weichen inhaltlich stark vom Oracle-Text ab – dort nicht prüfen)
-  if (pf?.text && (card.released_at || '') >= '2008-01-01' && !similarText(pf.text, face.oracle_text)) pf = null;
+  if (pf?.text && (card.released_at || '') >= '2008-01-01' && !similarText(pickPart(pf.text, face.oracle_text), face.oracle_text)) pf = null;
+  if (pf?.text) pf = { ...pf, text: pickPart(pf.text, face.oracle_text) };
   if (pf?.text) face.oracle_text = cleanPrinted(pf.text);
   if (pf?.type) face.type_line = pf.type.replace(/ [–-] /g, ' — ');
   face.printed = !!pf?.text;
@@ -71,7 +72,8 @@ export function buildModel(card, set, opts) {
       ...card,
       card_faces: card.card_faces.map((cf) => {
         const p = card.printed.find((x) => x.name === cf.name);
-        return p?.text && similarText(p.text, cf.oracle_text) ? { ...cf, oracle_text: cleanPrinted(p.text), type_line: p.type ? p.type.replace(/ [–-] /g, ' \u2014 ') : cf.type_line } : cf;
+        const pt = p?.text && pickPart(p.text, cf.oracle_text);
+        return pt && similarText(pt, cf.oracle_text) ? { ...cf, oracle_text: cleanPrinted(pt), type_line: p.type ? p.type.replace(/ [–-] /g, ' \u2014 ') : cf.type_line } : cf;
       }),
     };
   }
@@ -513,7 +515,8 @@ export async function renderCard(canvas, model, deps) {
     const auto = draw(tx, model);
     if (!auto) return draw(ctx, model);
     const caps = [];
-    for (let c = auto * 1.25; c >= auto * 0.8; c -= 0.5) caps.push(c);
+    // nie größer als die automatisch passende Größe (sonst läuft der Text aus dem Feld)
+    for (let c = auto; c >= auto * 0.75; c -= 0.5) caps.push(c);
     const best = fitTextToScan(scan, L.text || L.box, W, H, caps, [1], (x, c) => {
       draw(x, { ...model, opts: { ...opts, fontCap: c.cap } });
       return true;
@@ -797,6 +800,22 @@ async function drawColorIndicator(ctx, colors, T) {
 }
 
 /** Bereinigt gedruckten Text aus MTGJSON (Zeilenenden, fehlerhaftes Schnee-Symbol "{S}i}"). */
+/** MTGJSON führt bei Adventure/Split teils beide Hälften in einem Text (" // "): passende Hälfte wählen. */
+function pickPart(text, oracle) {
+  if (!text || !text.includes(' // ')) return text;
+  const parts = text.split(' // ');
+  const words = (t) => new Set(String(t || '').toLowerCase().replace(/\([^)]*\)/g, ' ').match(/[a-z]{3,}/g) || []);
+  const o = words(oracle);
+  let best = parts[0]; let bs = -1;
+  for (const p of parts) {
+    const w = words(p); let c = 0;
+    for (const x of w) if (o.has(x)) c++;
+    const sc = c / Math.max(1, Math.min(w.size, o.size));
+    if (sc > bs) { bs = sc; best = p; }
+  }
+  return best;
+}
+
 function cleanPrinted(t) {
   return t.replace(/\\r/g, '').replace(/\r/g, '').replace(/\{S\}i\}/g, '{S}')
     // alte Gatherer-Kürzel für Tap/Untap ("ocT", "ocQ")

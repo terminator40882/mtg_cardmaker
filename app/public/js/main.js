@@ -84,8 +84,12 @@ async function selectPrint(id) {
     // "The List"/Mystery-Booster-Reprints tragen Set & Nummer des Originals (z. B. "CLB-187")
     const m = /^(plst|plist|mb1|fmb1|pmb1)$/.test(card.set) && /^([A-Za-z0-9]+)-(.+)$/.exec(card.collector_number);
     if (m) card = { ...card, set: m[1].toLowerCase(), collector_number: m[2] };
-    const set = await api.set(card.set).catch(() => null);
+    const [set, printed] = await Promise.all([
+      api.set(card.set).catch(() => null),
+      api.printed(card.set, card.id).catch(() => null),
+    ]);
     if (state.printId !== id) return;
+    card = { ...card, printed };
     state.card = card;
     state.set = set;
     const faces = facesOf(card);
@@ -121,6 +125,7 @@ function currentOptions(scale = 1) {
     border: $('opt-border').value,
     showFlavor: $('opt-flavor').checked,
     showReminder: $('opt-reminder').checked,
+    printedText: $('opt-printed').checked,
     fontCap: Number($('opt-size').value) || null,
     flavorBar: $('opt-flavorbar').checked,
     footer: $('opt-footer').value.trim(),
@@ -163,7 +168,7 @@ function scheduleRender() {
   });
 }
 
-for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-reminder', 'opt-size', 'opt-source', 'opt-frame', 'opt-border', 'opt-footer', 'opt-align', 'art-zoom', 'art-dx', 'art-dy']) {
+for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-reminder', 'opt-printed', 'opt-size', 'opt-source', 'opt-frame', 'opt-border', 'opt-footer', 'opt-align', 'art-zoom', 'art-dx', 'art-dy']) {
   $(id).addEventListener('input', scheduleRender);
 }
 $('opt-face').addEventListener('input', () => { updateOriginal(); scheduleRender(); });

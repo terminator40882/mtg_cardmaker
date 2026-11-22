@@ -30,7 +30,10 @@ function orderColors(colors) {
 /** Port von cardFrameProperties() aus creator-23.js */
 export function frameProperties(colors, manaCost, typeLine, power, style) {
   colors = orderColors(colors);
-  const isHybrid = /\{[^}]*\/[^}]*\}/.test(manaCost || '');
+  if (!colors.length && !typeLine.includes('Land') && !typeLine.includes('Artifact') && style !== 'Seventh' && style !== 'Eighth') {
+    return { pinline: 'C', pinlineRight: null, rules: 'C', rulesRight: null, typeTitle: 'C', pt: power != null ? 'C' : null, frame: 'C', frameRight: null, colors };
+  }
+  const isHybrid = /\{[WUBRG2C]\/[WUBRG]\}/.test(manaCost || ''); // {W/P} (phyrexisch) ist kein Hybrid
   const land = typeLine.includes('Land');
   let rules;
   if (style === 'Seventh') {
@@ -142,7 +145,7 @@ function devoidLayer(letter, mask, right) {
 }
 
 /** 8th Edition 2003–2014 (Card Conjurer: make8thEditionFrameByLetter) */
-function eighthLayer(letter, mask, right) {
+function eighthLayer(letter, mask, right, colorshifted = false) {
   letter = letter.toUpperCase();
   if (mask === 'PT') {
     if (letter.length > 1) letter = letter[0];
@@ -150,6 +153,10 @@ function eighthLayer(letter, mask, right) {
   }
   if (letter === 'V') letter = 'A';
   if (mask === 'PT') return { src: `${IMG}/8th/pt/${lc(letter)}.png`, masks: [], bounds: { x: 0.7227, y: 0.8796, width: 0.2147, height: 0.0839 } };
+  // Planar Chaos "colorshifted": eigener Rahmen für einfarbige Karten
+  if (colorshifted && mask === 'Frame' && 'WUBRG'.includes(letter) && letter.length === 1) {
+    return { src: `${IMG}/8th/colorshifted/${lc(letter)}.png`, masks: [`${IMG}/8th/frame.png`, ...(right ? [RIGHT_HALF] : [])] };
+  }
   const masks = [`${IMG}/8th/${lc(mask)}.${mask === 'Border' ? 'svg' : 'png'}`];
   if (right) masks.push(RIGHT_HALF);
   return { src: `${IMG}/8th/${lc(letter)}.png`, masks };
@@ -168,11 +175,14 @@ function seventhLayer(letter, mask, right) {
 
 // ---------- Stapel je Rahmenstil (Reihenfolge: oben -> unten, wie in Card Conjurer) ----------
 
-function m15Stack(p, { legendary, style, stamp, devoid }) {
+function m15Stack(p, { legendary, style, stamp, devoid, miracle, companion }) {
   const L = (letter, mask, right = false) => m15Layer(letter, mask, right, style);
   const out = [];
   if (legendary) {
-    if (style === 'nyx') {
+    if (companion) {
+      if (p.pinlineRight) out.push(m15Layer(p.pinlineRight, 'Inner Crown', true, 'companion'));
+      out.push(m15Layer(p.pinline, 'Inner Crown', false, 'companion'));
+    } else if (style === 'nyx') {
       if (p.pinlineRight) out.push(L(p.pinlineRight, 'Inner Crown', true));
       out.push(L(p.pinline, 'Inner Crown'));
     }
@@ -182,6 +192,11 @@ function m15Stack(p, { legendary, style, stamp, devoid }) {
   }
   if (p.pt) out.push(devoid ? { src: `${IMG}/m15/devoid/m15DevoidPT.png`, masks: [], bounds: { x: 0.7573, y: 0.8848, width: 0.188, height: 0.0733 } } : L(p.pt, 'PT'));
   if (stamp) out.push(L(p.frame, 'Stamp'));
+  if (miracle) {
+    // Miracle-Überlagerung (Card Conjurer packM15Miracle) über Titel und Bildrahmen
+    const l = ({ WL: 'L', UL: 'L', BL: 'L', RL: 'L', GL: 'L', ML: 'L', V: 'A', C: 'A' })[p.pinline] || p.pinline;
+    out.push({ src: `${IMG}/m15/miracle/${lc(l)}.png`, masks: [], bounds: { x: 0.04, y: 0.0286, width: 0.92, height: 0.5324 } });
+  }
   if (p.pinlineRight) out.push(L(p.pinlineRight, 'Pinline', true));
   out.push(L(p.pinline, 'Pinline'));
   out.push(L(p.typeTitle, 'Type'));
@@ -198,7 +213,7 @@ function m15Stack(p, { legendary, style, stamp, devoid }) {
   return out;
 }
 
-function eighthStack(p) {
+function eighthStack(p, colorshifted = false) {
   const out = [];
   if (p.pt) out.push(eighthLayer(p.pt, 'PT'));
   if (p.pinlineRight) out.push(eighthLayer(p.pinlineRight, 'Pinline', true));
@@ -207,8 +222,8 @@ function eighthStack(p) {
   out.push(eighthLayer(p.typeTitle, 'Title'));
   if (p.pinlineRight) out.push(eighthLayer(p.rulesRight, 'Rules', true));
   out.push(eighthLayer(p.rules, 'Rules'));
-  if (p.frameRight) out.push(eighthLayer(p.frameRight, 'Frame', true));
-  out.push(eighthLayer(p.frame, 'Frame'));
+  if (p.frameRight) out.push(eighthLayer(p.frameRight, 'Frame', true, colorshifted));
+  out.push(eighthLayer(p.frame, 'Frame', false, colorshifted));
   out.push(eighthLayer(p.frame, 'Border'));
   return out;
 }
@@ -376,16 +391,18 @@ export function ccLayers(model) {
   if (L.style === 'm15') {
     const p = frameProperties(colors, face.mana_cost, type, power);
     let style = 'regular';
-    if (fx.includes('snow') || /\bSnow\b/.test(type)) style = 'snow';
+    if (fx.includes('snow')) style = 'snow';
     else if (model.palettes[0].variant === 'nyx') style = 'nyx';
     return m15Stack(p, {
       legendary: flags.legendary,
       style,
       stamp: flags.holo,
       devoid: model.palettes[0].variant === 'devoid',
+      miracle: fx.includes('miracle'),
+      companion: fx.includes('companion'),
     });
   }
-  if (L.style === 'm2003') return eighthStack(frameProperties(colors, face.mana_cost, type, power));
+  if (L.style === 'm2003') return eighthStack(frameProperties(colors, face.mana_cost, type, power, 'Eighth'), fx.includes('colorshifted'));
   if (L.style === 'retro' && L.variant === '97') return seventhStack(frameProperties(colors, face.mana_cost, type, power, 'Seventh'));
   if (L.style === 'retro' && L.variant === '93') return oldStack(null, card, orderColors(colors), type, { key: model.borderKey, color: model.borderColor });
   return null;

@@ -35,8 +35,6 @@ export function buildModel(card, set, opts) {
   const f = (card.layout === 'adventure' || card.layout === 'split') && card.card_faces ? card.card_faces[0] : faces[faceIdx];
   const pick = (k) => f[k] ?? card[k];
   let type = pick('type_line') || '';
-  // Planeswalker vor Amonkhet (28.04.2017) tragen den Supertyp "Legendary" nicht aufgedruckt
-  if (/\bPlaneswalker\b/.test(type) && (card.released_at || '') < '2017-04-28') type = type.replace(/^Legendary /, '');
   const loyalty = f.loyalty ?? (faces.length === 1 ? card.loyalty : null);
   const face = {
     name: pick('name'),
@@ -54,6 +52,23 @@ export function buildModel(card, set, opts) {
     produced_mana: card.produced_mana || [],
     artist: f.artist || card.artist || '',
   };
+  // Gedruckter Text/Typ dieses Drucks (MTGJSON originalText/originalType) statt Oracle-Text
+  const pf = opts.printedText !== false && Array.isArray(card.printed)
+    ? (card.printed.find((p) => p.name === face.name) || card.printed[faceIdx] || null) : null;
+  if (pf?.text) face.oracle_text = pf.text.replace(/\s+$/, '');
+  if (pf?.type) face.type_line = pf.type.replace(/ [–-] /g, ' — ');
+  face.printed = !!pf?.text;
+  type = face.type_line;
+  // auch die anderen Hälften/Seiten (Adventure, Split, MDFC-Lasche) mit gedrucktem Text
+  if (opts.printedText !== false && Array.isArray(card.printed) && card.card_faces) {
+    card = {
+      ...card,
+      card_faces: card.card_faces.map((cf) => {
+        const p = card.printed.find((x) => x.name === cf.name);
+        return p?.text ? { ...cf, oracle_text: p.text.replace(/\r/g, '').replace(/\s+$/, ''), type_line: p.type ? p.type.replace(/ [–-] /g, ' \u2014 ') : cf.type_line } : cf;
+      }),
+    };
+  }
   let layoutName = opts.frame && opts.frame !== 'auto' ? opts.frame : layoutForFrame(card.frame);
   const isPw = loyalty != null && /\bPlaneswalker\b/.test(type);
   if ((layoutName === 'm15' || (layoutName === 'm2003' && (!opts.frame || opts.frame === 'auto'))) && isPw) {
@@ -83,7 +98,9 @@ export function buildModel(card, set, opts) {
     palettes: frameVariant(frameColors(face), card, type),
     flags: {
       // Legendary-Krone gibt es erst ab Dominaria (2018)
-      legendary: /\bLegendary\b/.test(type) && (card.released_at || '') >= '2018-04-27',
+      // Krone laut Scryfall-Rahmeneffekt (gibt es nur im 2015er-Rahmen ab Dominaria)
+      legendary: card.frame_effects ? (card.frame_effects.includes('legendary') && /\bLegendary\b/.test(type))
+        : (/\bLegendary\b/.test(type) && (card.released_at || '') >= '2018-04-27'),
       pt: face.power != null && face.toughness != null,
       vehicle: /\bVehicle\b/.test(type),
       planeswalker: loyalty != null && /\bPlaneswalker\b/.test(type),
@@ -102,8 +119,9 @@ function frameVariant(palettes, card, type) {
   const fx = card.frame_effects || [];
   const modern = card.frame === '2015' || card.frame === 'future';
   const snow = fx.includes('snow');
-  const nyx = fx.includes('nyxtouched') || (modern && /\bEnchantment\b/.test(type) && /\b(Creature|Artifact)\b/.test(type) && (card.released_at || '') >= '2020-01-24');
-  const devoid = (card.keywords || []).includes('Devoid');
+  // Scryfall-Rahmeneffekte: "nyxtouched"/"enchantment" = Sternenhimmel-Rahmen, "devoid" = durchscheinend
+  const nyx = fx.includes('nyxtouched') || fx.includes('enchantment');
+  const devoid = fx.includes('devoid') || (card.keywords || []).includes('Devoid');
   return palettes.map((p) => {
     if (snow) return { ...p, tex: ['#a9b9c6', '#e3eaef', '#ffffff'], variant: 'snow' };
     if (nyx) return { ...p, tex: p.tex.map((c) => mix(c, '#ffffff', 0.5)), variant: 'nyx' };
@@ -549,7 +567,7 @@ export async function renderCard(canvas, model, deps) {
       const scanExt = blockExtent(scan, textBox, W, H, fScan);
       // Varianten: Oracle-Text enthält oft Reminder-Text, der auf diesem Druck fehlt
       const variants = [paras];
-      if (opts.showReminder && /\(/.test(face.oracle_text || '')) {
+      if (opts.showReminder && !face.printed && /\(/.test(face.oracle_text || '')) {
         const noRem = parseRules(face.oracle_text, { showReminder: false, keywords, planeswalker: flags.planeswalker && !retroLayout });
         variants.push([...noRem, ...flavorParas]);
       }
@@ -687,6 +705,27 @@ async function drawColorIndicator(ctx, colors, T) {
     return 0;
   }
   return b.w + 0.004 * W;
+}
+
+/**
+ * Typzeile so, wie sie zur Druckzeit aussah (MTGJSON/Scryfall liefern die heutige Form):
+ * - bis Classic Sixth Edition (1999): Kreaturen als "Summon <Typ>", legendäre als "Summon Legend",
+ *   Auren als "Enchant Creature/Land/…"
+ * - Planeswalker vor Amonkhet (2017) ohne "Legendary"
+ */
+export function historicTypeLine(type, released, text = '') {
+  let t = type;
+  if (released && released < '2017-04-28' && /\bPlaneswalker\b/.test(t)) t = t.replace(/^Legendary /, '');
+  if (released && released < '1999-04-21') {
+    let m;
+    if ((m = /^Legendary Creature — (.+)$/.exec(t))) t = 'Summon Legend';
+    else if ((m = /^Creature — (.+)$/.exec(t))) t = `Summon ${m[1]}`;
+    else if (/^Enchantment — Aura/.test(t)) {
+      const what = /^Enchant (\w+)/m.exec(text);
+      if (what) t = `Enchant ${what[1][0].toUpperCase()}${what[1].slice(1)}`;
+    }
+  }
+  return t;
 }
 
 function basicLandSymbol(face) {

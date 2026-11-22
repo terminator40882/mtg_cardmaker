@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import * as sf from './scryfall.js';
 import { fontCss, FONTS_DIR, FONTSOURCE_DIR } from './fonts.js';
 import { ccStatus, CC_IMG_DIR } from './ccassets.js';
+import { printed } from './mtgjson.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(here, '..', 'public');
@@ -32,6 +33,10 @@ app.get('/api/prints', wrap(async (req, res) => {
 
 app.get('/api/card/:id', wrap(async (req, res) => res.json(await sf.getCard(req.params.id))));
 app.get('/api/card-by/:set/:cn', wrap(async (req, res) => res.json(await sf.getCardBySet(req.params.set, req.params.cn))));
+// Gedruckter Text eines Drucks (MTGJSON); leer, wenn unbekannt
+app.get('/api/printed/:set/:id', wrap(async (req, res) => {
+  res.json({ faces: await printed(req.params.set, req.params.id).catch(() => null) });
+}));
 app.get('/api/set/:code', wrap(async (req, res) => {
   const set = await sf.getSet(req.params.code);
   res.json({ ...set, icon: sf.assetPath(set.icon_svg_uri) });

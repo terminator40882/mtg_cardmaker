@@ -543,13 +543,14 @@ export async function drawWatermark(ctx, model, L, scale) {
 }
 
 /** Loyalitäts-Symbole der Planeswalker (Card Conjurer) */
-export async function ccPwIcons(tall) {
+export async function ccPwIcons(tall, model) {
+  const pack = model && packFor(model);
   try {
     const [plus, minus, neutral] = await Promise.all(['Plus', 'Minus', 'Neutral'].map((n) => loadImage(`${IMG}/planeswalker/planeswalker${n}.png`)));
     const [lineOdd, lineEven, textMask] = await Promise.all([
       loadImage(`${IMG}/planeswalker/abilityLineOdd.png`),
       loadImage(`${IMG}/planeswalker/abilityLineEven.png`),
-      loadImage(tall ? `${IMG}/planeswalker/tall/planeswalkerTallMaskRules.png` : `${IMG}/planeswalker/text.svg`),
+      loadImage(pack?.textMask || (tall ? `${IMG}/planeswalker/tall/planeswalkerTallMaskRules.png` : `${IMG}/planeswalker/text.svg`)),
     ]);
     return { plus, minus, neutral, lineOdd, lineEven, textMask };
   } catch { return null; }

@@ -13,7 +13,7 @@ import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT } from './dfc.js';
 import { renderLandscape } from './landscape.js';
 import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield, setPwIcons } from './planeswalker.js';
 import { ccStatus, ccLayers, loadLayers, drawLayers, ccArtBounds, drawWatermark, ccPwIcons } from './cc.js';
-import { alignArt, fitCapToScan } from './align.js';
+import { alignArt, fitTextToScan } from './align.js';
 
 export { W, H };
 
@@ -34,7 +34,9 @@ export function buildModel(card, set, opts) {
   // Adventure/Split: eine Kartenseite mit mehreren Hälften -> Hauptteil als "Seite"
   const f = (card.layout === 'adventure' || card.layout === 'split') && card.card_faces ? card.card_faces[0] : faces[faceIdx];
   const pick = (k) => f[k] ?? card[k];
-  const type = pick('type_line') || '';
+  let type = pick('type_line') || '';
+  // Planeswalker vor Amonkhet (28.04.2017) tragen den Supertyp "Legendary" nicht aufgedruckt
+  if (/\bPlaneswalker\b/.test(type) && (card.released_at || '') < '2017-04-28') type = type.replace(/^Legendary /, '');
   const loyalty = f.loyalty ?? (faces.length === 1 ? card.loyalty : null);
   const face = {
     name: pick('name'),
@@ -47,13 +49,14 @@ export function buildModel(card, set, opts) {
     loyalty,
     defense: f.defense ?? card.defense ?? null,
     colors: f.colors ?? f.color_indicator ?? card.colors ?? [],
+    color_indicator: f.color_indicator || null,
     color_identity: card.color_identity || [],
     produced_mana: card.produced_mana || [],
     artist: f.artist || card.artist || '',
   };
   let layoutName = opts.frame && opts.frame !== 'auto' ? opts.frame : layoutForFrame(card.frame);
   const isPw = loyalty != null && /\bPlaneswalker\b/.test(type);
-  if (layoutName === 'm15' && isPw) {
+  if ((layoutName === 'm15' || (layoutName === 'm2003' && (!opts.frame || opts.frame === 'auto'))) && isPw) {
     const abilities = (face.oracle_text || '').split('\n').filter(Boolean).length;
     layoutName = abilities >= 4 ? 'pw4' : 'pw';
   } else if (layoutName === 'm15' && card.layout === 'saga') {
@@ -85,7 +88,7 @@ export function buildModel(card, set, opts) {
       vehicle: /\bVehicle\b/.test(type),
       planeswalker: loyalty != null && /\bPlaneswalker\b/.test(type),
       basic: /\bBasic\b/.test(type) && /\bLand\b/.test(type),
-      holo: (card.rarity === 'rare' || card.rarity === 'mythic') && (LAYOUTS[layoutName] || LAYOUTS.m15).style === 'm15',
+      holo: (card.rarity === 'rare' || card.rarity === 'mythic') && (LAYOUTS[layoutName] || LAYOUTS.m15).style === 'm15' && (card.released_at || '') >= '2014-07-18',
     },
     opts,
   };
@@ -373,7 +376,7 @@ export async function renderCard(canvas, model, deps) {
     ensureFonts(),
   ]);
   model.frameSource = cc ? 'cc' : 'code';
-  setPwIcons(cc && L.kind === 'pw' ? await ccPwIcons(L.typePlate.y < 1100) : null);
+  setPwIcons(cc && L.kind === 'pw' ? await ccPwIcons(L.typePlate.y < 1100, model) : null);
 
   canvas.width = Math.round(W * scale);
   canvas.height = Math.round(H * scale);
@@ -427,7 +430,9 @@ export async function renderCard(canvas, model, deps) {
   }
 
   const retro = L.style === 'retro';
-  const headColor = retro ? (luminance(model.palettes[0].retroTex[1]) > 0.55 ? '#111' : '#fbfaf6') : '#111';
+  // Rückseiten von Transform-Karten haben dunkle Leisten mit weißer Schrift
+  const darkBack = model.card.layout === 'transform' && model.faceIdx === 1 && L.style === 'm15';
+  const headColor = darkBack ? '#ffffff' : retro ? (luminance(model.palettes[0].retroTex[1]) > 0.55 ? '#111' : '#fbfaf6') : '#111';
   const headShadow = retro && headColor !== '#111' ? 'rgba(0,0,0,0.9)' : null;
 
   // Name + Manakosten
@@ -436,7 +441,7 @@ export async function renderCard(canvas, model, deps) {
   drawCost(ctx, costCodes, symbols, L.cost);
   const N = L.nameText;
   // Doppelseitige Karten: Symbol vor dem Namen (nur moderne Rahmen)
-  const dfc = L.style === 'm15' ? dfcKind(model.card) : null;
+  const dfc = L.style === 'm15' || L.style === 'm2003' ? dfcKind(model.card) : null;
   const nameShift = dfc ? drawDfcIcon(ctx, dfc, model.faceIdx === 1, model.card.frame_effects, L.cost.cy + 1) : 0;
   drawFittedLine(ctx, smartQuotes(face.name), N.family, N.cap, N.x + nameShift, N.baseline,
     N.right - N.x - nameShift - cw - (cw ? 20 : 0), { color: headColor, shadow: headShadow });
@@ -445,8 +450,10 @@ export async function renderCard(canvas, model, deps) {
   const plainSymbol = (model.card.released_at || '9999') < '1998-06-01';
   const symW = drawSetSymbol(ctx, setIcon, model.card.rarity, { ...L.setSym, outline: retro ? 3 : 4, plain: plainSymbol });
   const T = L.typeText;
-  drawFittedLine(ctx, face.type_line, T.family, T.cap, T.x, T.baseline,
-    Math.min(T.right, L.setSym.right - (symW ? symW + 24 : 0)) - T.x, { color: headColor, shadow: headShadow });
+  // Farbindikator (Punkt vor der Typzeile, z. B. Rückseiten von DFCs) – Card Conjurer m15/ciPips
+  const ciShift = face.color_indicator && L.style !== 'retro' ? await drawColorIndicator(ctx, face.color_indicator, T) : 0;
+  drawFittedLine(ctx, face.type_line, T.family, T.cap, T.x + ciShift, T.baseline,
+    Math.min(T.right, L.setSym.right - (symW ? symW + 24 : 0)) - T.x - ciShift, { color: headColor, shadow: headShadow });
 
   // Regeltext
   let textBox = { ...L.text };
@@ -474,8 +481,8 @@ export async function renderCard(canvas, model, deps) {
     const auto = draw(tx, model);
     if (!auto) return draw(ctx, model);
     const caps = [];
-    for (let c = auto * 1.2; c >= auto * 0.8; c -= 0.5) caps.push({ cap: c });
-    const best = fitCapToScan(scan, L.box, W, H, caps, (x, c) => {
+    for (let c = auto * 1.25; c >= auto * 0.8; c -= 0.5) caps.push(c);
+    const best = fitTextToScan(scan, L.text || L.box, W, H, caps, [1], (x, c) => {
       draw(x, { ...model, opts: { ...opts, fontCap: c.cap } });
       return true;
     }, `${opts.scanUrl}|${tag}|${model.faceIdx}|${model.face.oracle_text}`);
@@ -494,9 +501,9 @@ export async function renderCard(canvas, model, deps) {
       const auto = layoutPlaneswalker(ctx, rulesParas, L, {});
       if (auto) {
         const caps = [];
-        for (let c = auto.cap * 1.2; c >= auto.cap * 0.8; c -= 0.5) caps.push({ cap: c });
+        for (let c = auto.cap * 1.3; c >= auto.cap * 0.8; c -= 0.5) caps.push(c);
         const box = { x: L.text.x, y: L.pwBox.y, w: L.text.w, h: L.pwBox.h };
-        const best = fitCapToScan(scan, box, W, H, caps, (x, c) => {
+        const best = fitTextToScan(scan, box, W, H, caps, [1], (x, c) => {
           const lay = layoutPlaneswalker(x, rulesParas, L, { fixedCap: c.cap });
           if (!lay) return false;
           for (const r of lay.rows) drawText(x, r.lay, symbols);
@@ -533,13 +540,19 @@ export async function renderCard(canvas, model, deps) {
       };
       const key = `${opts.scanUrl}|${model.faceIdx}|${L.style}${L.variant || ''}|${opts.showFlavor}|${opts.showReminder}|${model.face.oracle_text}`;
       // 1) Versalhöhe bei Standard-Zeilenabstand, 2) Zeilenabstand (Durchschuss) um die beste Größe herum
-      const capsA = [];
-      for (let c = L.rules.maxCap; c >= Math.max(L.rules.minCap, auto * 0.7); c -= 0.5) capsA.push({ cap: c, k: 1 });
-      const a = fitCapToScan(scan, textBox, W, H, capsA, draw, `${key}|a`);
-      const capsB = [];
-      if (a) for (let c = a.cap + 1.5; c >= a.cap - 1.5; c -= 0.5) for (const k of [0.86, 0.9, 0.94, 0.97, 1, 1.03]) capsB.push({ cap: c, k });
-      const cap = a && fitCapToScan(scan, textBox, W, H, capsB, draw, `${key}|b`);
-      if (cap) { textOpts.fixedCap = cap.cap; textOpts.metrics = withK(cap.k); }
+      const caps = [];
+      for (let c = L.rules.maxCap + 2; c >= Math.max(L.rules.minCap, auto * 0.7); c -= 0.5) caps.push(c);
+      const cap = fitTextToScan(scan, textBox, W, H, caps, [0.88, 0.91, 0.94, 0.97, 1, 1.03, 1.06], draw, `${key}|f`);
+      if (cap) {
+        // nie größer als das, was ins Textfeld passt
+        let c = cap.cap;
+        const fits = (cc) => {
+          const lay = fitText(ctx, paras, textBox, { ...textOpts, fixedCap: cc, metrics: withK(cap.k) });
+          return !lay.overflow && lay.height <= textBox.h + 4 && !lay.collides;
+        };
+        while (c > L.rules.minCap && !fits(c)) c -= 0.5;
+        textOpts.fixedCap = c; textOpts.metrics = withK(cap.k);
+      }
     }
     const lay = fitText(ctx, paras, textBox, textOpts);
     if (flags.planeswalker && !retroLayout) drawPlaneswalkerRows(ctx, lay, L);
@@ -560,7 +573,7 @@ export async function renderCard(canvas, model, deps) {
     } else {
       const b = L.ptPlate;
       drawFittedLine(ctx, pt, L.pt.family, L.pt.cap, b.x + b.w / 2, b.y + b.h / 2 + L.pt.baselineOffset, b.w - 50,
-        { align: 'center', color: flags.vehicle ? VEHICLE_PT.text : '#111' });
+        { align: 'center', color: flags.vehicle || darkBack ? '#ffffff' : '#111' });
     }
   }
 
@@ -593,6 +606,46 @@ function drawPlaneswalkerRows(ctx, lay, L) {
     }
   });
   ctx.restore();
+}
+
+/**
+ * Farbindikator wie Card Conjurer (packM15CIPips): Grundplatte (base.png, eigene Bounds) und
+ * kartengroße Farb-SVGs, bei mehreren Farben über die Masken firstHalf/secondHalf bzw. …Third.
+ * Liefert die Verschiebung der Typzeile.
+ */
+async function drawColorIndicator(ctx, colors, T) {
+  const order = ['W', 'U', 'B', 'R', 'G'].filter((c) => colors.includes(c));
+  if (!order.length) return 0;
+  const base = '/cc/img/frames/m15/ciPips/';
+  const b = { x: 0.0767 * W, y: 0.5748 * H, w: 0.0467 * W, h: 0.0334 * H };
+  // an die Typzeile des aktuellen Layouts verschieben (SVGs sind für die M15-Typzeile gezeichnet)
+  const dx = T.x - 0.0087 * W - b.x;
+  const dy = T.baseline - T.cap / 2 + 3.5 - b.h / 2 - b.y;
+  try {
+    const parts = order.length === 2 ? ['firstHalf', 'secondHalf'] : order.length === 3 ? ['firstThird', 'secondThird', 'thirdThird'] : [];
+    const [plate, ...rest] = await Promise.all([loadImage(`${base}base.png`),
+      ...order.map((c) => loadImage(`${base}${c.toLowerCase()}.svg`)), ...parts.map((p) => loadImage(`${base}${p}.svg`))]);
+    const cols = rest.slice(0, order.length);
+    const masks = rest.slice(order.length);
+    ctx.drawImage(plate, b.x + dx, b.y + dy, b.w, b.h);
+    if (order.length > 3) {
+      ctx.drawImage(cols[0], dx, dy, W, H);
+    } else {
+      cols.forEach((img, i) => {
+        if (!masks[i]) { ctx.drawImage(img, dx, dy, W, H); return; }
+        const c = document.createElement('canvas');
+        c.width = W; c.height = H;
+        const cx = c.getContext('2d');
+        cx.drawImage(masks[i], 0, 0, W, H);
+        cx.globalCompositeOperation = 'source-in';
+        cx.drawImage(img, 0, 0, W, H);
+        ctx.drawImage(c, dx, dy, W, H);
+      });
+    }
+  } catch {
+    return 0;
+  }
+  return b.w + 0.004 * W;
 }
 
 function basicLandSymbol(face) {

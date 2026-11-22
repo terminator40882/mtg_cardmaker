@@ -122,12 +122,23 @@ function inkMask(src, box, f, W, H, threshold = 110) {
   x.drawImage(src, box.x * sw / W, box.y * sh / H, box.w * sw / W, box.h * sh / H, 0, 0, w, h);
   const d = x.getImageData(0, 0, w, h).data;
   const out = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    const a = d[i * 4 + 3];
-    const l = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
-    out[i] = a > 128 && l < threshold ? 1 : 0;
+  const lum = new Float32Array(w * h);
+  const dk = new Float32Array(w * h); // Dunkelheit 0..1 relativ zum Zeilenhintergrund
+  for (let i = 0; i < w * h; i++) lum[i] = d[i * 4 + 3] > 128 ? d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114 : 255;
+  // Schrift = deutlich dunkler als der Hintergrund der Zeile (robust gegen getönte Textfelder)
+  const row = new Float32Array(w);
+  for (let y = 0; y < h; y++) {
+    for (let xx = 0; xx < w; xx++) row[xx] = lum[y * w + xx];
+    const sorted = Array.from(row).sort((a, b) => a - b);
+    const bg = sorted[Math.floor(w * 0.85)];
+    const t = Math.min(threshold, bg * 0.6);
+    for (let xx = 0; xx < w; xx++) {
+      const l = lum[y * w + xx];
+      out[y * w + xx] = l < t ? 1 : 0;
+      dk[y * w + xx] = bg > 0 ? Math.max(0, Math.min(1, (bg * 0.85 - l) / (bg * 0.85))) : 0;
+    }
   }
-  return { out, w, h };
+  return { out, dk, w, h };
 }
 
 /**
@@ -186,6 +197,194 @@ export function fitCapToScan(scan, box, W, H, caps, draw, key) {
     if (globalThis.__fitDebug) console.log('fit', JSON.stringify(cap), err);
   }
   const res = best ? best.cap : null;
+  if (key) textCache.set(key, res);
+  return res;
+}
+
+// ---------- Schriftgröße/Zeilenabstand über Zeilenmetriken (unabhängig vom Wortlaut) ----------
+
+/** Zeilenhöhe (Tintenband je Zeile) und Zeilenabstand aus einem Tintenraster. */
+function lineStats(m) {
+  const r = new Float32Array(m.h);
+  for (let y = 0; y < m.h; y++) { let s = 0; for (let x = 0; x < m.w; x++) s += m.out[y * m.w + x]; r[y] = s; }
+  const sm = r.map((v, y) => (r[y - 1] || 0) * 0.25 + v * 0.5 + (r[y + 1] || 0) * 0.25);
+  const max = Math.max(...sm);
+  if (!max) return null;
+  // Höhe: Kernband jeder Zeile (Mittellänge der Kleinbuchstaben) bei 35 % der maximalen Zeilentinte
+  const thr = max * 0.35;
+  const runs = [];
+  let start = -1;
+  for (let y = 0; y <= m.h; y++) {
+    const on = y < m.h && sm[y] > thr;
+    if (on && start < 0) start = y;
+    if (!on && start >= 0) { if (y - start >= 2) runs.push([start, y]); start = -1; }
+  }
+  if (!runs.length) return null;
+  const med = (a) => { const s2 = [...a].sort((p, q) => p - q); return s2[Math.floor(s2.length / 2)]; };
+  // Mittelwert der mittleren Hälfte (robust und feiner als der Median ganzer Pixel)
+  const lens = runs.map(([a2, b2]) => b2 - a2).sort((p, q) => p - q);
+  const core = lens.slice(Math.floor(lens.length / 4), Math.max(Math.floor(lens.length / 4) + 1, Math.ceil(lens.length * 3 / 4)));
+  const height = core.reduce((p, q) => p + q, 0) / core.length;
+  // Zeilenabstand: erstes deutliches Maximum der Autokorrelation des Zeilenprofils
+  let pitch = null;
+  if (runs.length >= 2) {
+    const mean = sm.reduce((p, q) => p + q, 0) / m.h;
+    const v = sm.map((q) => q - mean);
+    const ac = [];
+    for (let lag = 0; lag < m.h / 2; lag++) {
+      let acc = 0;
+      for (let y = 0; y + lag < m.h; y++) acc += v[y] * v[y + lag];
+      ac.push(acc);
+    }
+    const minLag = Math.max(3, Math.round(height * 1.3));
+    let bestLag = null; let bestVal = -Infinity;
+    for (let lag = minLag; lag < ac.length - 1; lag++) {
+      if (ac[lag] > ac[lag - 1] && ac[lag] >= ac[lag + 1] && ac[lag] > bestVal * 1.15) {
+        if (bestLag === null || ac[lag] > bestVal) { bestLag = lag; bestVal = ac[lag]; }
+        if (ac[lag] > 0.3 * ac[0]) break;
+      }
+    }
+    pitch = bestLag;
+  }
+  return { height, pitch, lines: runs.length };
+}
+
+/**
+ * Wählt den Kandidaten (z. B. {cap, k}), dessen Satz dieselbe Zeilenhöhe und denselben
+ * Zeilenabstand hat wie die Schrift im Scan. draw(ctx, cand) zeichnet nur Text.
+ */
+export function fitTextMetrics(scan, box, W, H, cands, draw, key) {
+  if (!scan || !cands.length) return null;
+  if (key && textCache.has(key)) return textCache.get(key);
+  // beide Bilder in der Auflösung des Scans auswerten (gleiche Unschärfe)
+  const f = (scan.naturalWidth || scan.width) / W;
+  const ref = lineStats(inkMask(scan, box, f, W, H));
+  if (!ref) { if (key) textCache.set(key, null); return null; }
+  const c = document.createElement('canvas');
+  c.width = Math.round(W * f); c.height = Math.round(H * f);
+  const x = c.getContext('2d', { willReadFrequently: true });
+  let best = null;
+  for (const cand of cands) {
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.clearRect(0, 0, c.width, c.height);
+    x.setTransform(f, 0, 0, f, 0, 0);
+    if (!draw(x, cand)) continue;
+    const st = lineStats(inkMask(c, box, f, W, H));
+    if (!st) continue;
+    let err = 2 * Math.abs(st.height - ref.height) / ref.height;
+    if (ref.pitch && st.pitch) err += Math.abs(st.pitch - ref.pitch) / ref.pitch;
+    else if (ref.pitch || st.pitch) err += 0.15;
+    err += Math.abs((cand.k || 1) - 1) * 0.3;
+    if (globalThis.__fitDebug) console.log('metric', JSON.stringify(cand), JSON.stringify(st), JSON.stringify(ref), err.toFixed(3));
+    if (!best || err < best.err) best = { cand, err };
+  }
+  const res = best ? best.cand : null;
+  if (key) textCache.set(key, res);
+  return res;
+}
+
+
+// ---------- Schriftgröße über die erste Textzeile (Kreuzkorrelation) ----------
+
+/** Lage der ersten Textzeile: Kernband (x-Höhe) und linker Rand der Tinte. */
+function firstLine(m) {
+  const sm = new Float32Array(m.h);
+  for (let y = 0; y < m.h; y++) { let s = 0; for (let x = 0; x < m.w; x++) s += m.out[y * m.w + x]; sm[y] = s; }
+  const max = Math.max(...sm);
+  if (!max) return null;
+  const thr = max * 0.35;
+  let a = -1; let b = -1;
+  for (let y = 0; y < m.h; y++) {
+    if (sm[y] > thr && a < 0) a = y;
+    if (a >= 0 && sm[y] <= thr) { b = y; break; }
+  }
+  if (a < 0) return null;
+  if (b < 0) b = m.h;
+  const core = b - a;
+  const top = Math.max(0, Math.round(a - core * 1.0));
+  const bottom = Math.min(m.h, Math.round(b + core * 0.6));
+  let left = m.w;
+  for (let y = top; y < bottom; y++) for (let x = 0; x < m.w; x++) if (m.out[y * m.w + x]) { if (x < left) left = x; break; }
+  return { base: b, core, top, bottom, left };
+}
+
+/** Normierte Kreuzkorrelation zweier Zeilenstreifen (Dunkelheit), ausgerichtet an Grundlinie und linkem Rand. */
+function stripCorr(A, la, B, lb, width, above, below) {
+  let best = -1;
+  for (let dy = -3; dy <= 3; dy++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      let sa = 0; let sb = 0; let saa = 0; let sbb = 0; let sab = 0; let n = 0;
+      for (let y = -above; y < below; y++) {
+        const ya = la.base + y; const yb = lb.base + y + dy;
+        if (ya < 0 || yb < 0 || ya >= A.h || yb >= B.h) continue;
+        for (let x = 0; x < width; x++) {
+          const xa = la.left + x; const xb = lb.left + x + dx;
+          if (xa >= A.w || xb < 0 || xb >= B.w) continue;
+          const va = A.dk[ya * A.w + xa]; const vb = B.dk[yb * B.w + xb];
+          sa += va; sb += vb; saa += va * va; sbb += vb * vb; sab += va * vb; n++;
+        }
+      }
+      if (n < 10) continue;
+      const cov = sab - (sa * sb) / n;
+      const den = Math.sqrt((saa - (sa * sa) / n) * (sbb - (sb * sb) / n));
+      if (den > 0 && cov / den > best) best = cov / den;
+    }
+  }
+  return best;
+}
+
+/**
+ * Bestimmt die Schriftgröße, bei der die erste Textzeile (meist identischer Wortlaut in
+ * Oracle- und Drucktext) am besten mit dem Scan übereinstimmt, und danach den Zeilenabstand
+ * aus dem Zeilenabstand des Scans. draw(ctx, {cap, k}) zeichnet nur Text in Kartenkoordinaten.
+ * Ergebnis: {cap, k} oder null.
+ */
+export function fitTextToScan(scan, box, W, H, caps, ks, draw, key) {
+  if (!scan || !caps.length) return null;
+  if (key && textCache.has(key)) return textCache.get(key);
+  const f = (scan.naturalWidth || scan.width) / W;
+  const ref = inkMask(scan, box, f, W, H);
+  const rl = firstLine(ref);
+  const refStats = lineStats(ref);
+  const c = document.createElement('canvas');
+  c.width = Math.round(W); c.height = Math.round(H);
+  const x = c.getContext('2d', { willReadFrequently: true });
+  const render = (cand) => {
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.clearRect(0, 0, c.width, c.height);
+    if (!draw(x, cand)) return null;
+    return inkMask(c, box, f, W, H);
+  };
+  let res = null;
+  if (rl) {
+    // 1) Größe: erste Zeile, erste ~45 % der Breite (die ersten Wörter)
+    const width = Math.round(ref.w * 0.45);
+    const above = Math.round(rl.core * 1.1); const below = Math.round(rl.core * 0.6);
+    let best = null;
+    for (const cap of caps) {
+      const m = render({ cap, k: 1 });
+      const ml = m && firstLine(m);
+      if (!ml) continue;
+      const r = stripCorr(ref, rl, m, ml, width, above, below);
+      if (globalThis.__fitDebug) console.log('line', cap, r.toFixed(4), JSON.stringify(rl), JSON.stringify(ml));
+      if (!best || r > best.r) best = { cap, r };
+    }
+    if (best && best.r > 0.3) {
+      res = { cap: best.cap, k: 1 };
+      // 2) Zeilenabstand passend zum Scan
+      if (refStats?.pitch && ks.length > 1) {
+        let bk = null;
+        for (const k of ks) {
+          const st = lineStats(render({ cap: best.cap, k }) || { out: [], w: 0, h: 0 });
+          if (!st?.pitch) continue;
+          const e = Math.abs(st.pitch - refStats.pitch) + Math.abs(k - 1) * 2;
+          if (globalThis.__fitDebug) console.log('pitch', k, st.pitch, refStats.pitch);
+          if (!bk || e < bk.e) bk = { k, e };
+        }
+        if (bk) res.k = bk.k;
+      }
+    }
+  }
   if (key) textCache.set(key, res);
   return res;
 }

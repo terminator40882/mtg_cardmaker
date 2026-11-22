@@ -398,5 +398,7 @@ export function layoutFromLines(ctx, paras, c, lines, box, M = METRICS, paraLeft
       blocks[b].flavorBarY = a + (z - c - a) / 2 + c * M.descent * 0.5;
     }
   }
-  return { cap: c, M, blocks, overflow: false, offset: 0, box, fromScan: true, worst };
+  const natural = cuts.reduce((a, [i, kk]) => a + lineW(i, kk), 0);
+  const targetSum = cuts.reduce((a, _, j) => a + (lines[j].right - leftOf(j, words[cuts[j][0]].pi)), 0);
+  return { cap: c, M, blocks, overflow: false, offset: 0, box, fromScan: true, worst, widthRatio: targetSum / Math.max(natural, 1) };
 }

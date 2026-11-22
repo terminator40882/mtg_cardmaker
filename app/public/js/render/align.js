@@ -439,7 +439,9 @@ export function scanLines(scan, box, W, H, exclude = null) {
   runs = runs.filter(([a, b]) => {
     let mx = 0;
     for (let y = a; y < b; y++) mx = Math.max(mx, r[y]);
-    return b - a >= 4 * f * 2 && mx < m.w * 0.6;
+    // Rahmenkanten sind dünn UND fast so breit wie das Fenster; dichte Textzeilen (alte Rahmen) bleiben
+    const border = mx > m.w * 0.8 || (mx > m.w * 0.6 && b - a < 10 * f * 2);
+    return b - a >= 4 * f * 2 && !border;
   });
   if (!runs.length) return null;
   // 2) Blöcke mit mehreren Zeilen (enger Durchschuss) an der dünnsten Stelle teilen
@@ -458,6 +460,7 @@ export function scanLines(scan, box, W, H, exclude = null) {
   runs = runs.flatMap(([a, b]) => split(a, b));
   // abgetrennte Unterlängen und Splitter (deutlich niedriger als eine Zeile) verwerfen
   runs = runs.filter(([a, b]) => b - a >= typical * 0.45);
+  if (globalThis.__fitDebug) console.log('runs', JSON.stringify(runs.map(([a, b]) => [Math.round(box.y + a / f), Math.round(box.y + b / f)])), typical, maxOne);
   // 3) je Zeile: Grundlinie = Ende des dichten Kerns, linke/rechte Kante
   const lines = [];
   for (const [a, b] of runs) {

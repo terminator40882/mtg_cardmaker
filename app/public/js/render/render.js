@@ -56,7 +56,8 @@ export function buildModel(card, set, opts) {
   let pf = opts.printedText !== false && Array.isArray(card.printed)
     ? (card.printed.find((p) => p.name === face.name) || card.printed[faceIdx] || null) : null;
   // Plausibilitätsprüfung: MTGJSON ordnet vereinzelt den Text einer anderen Karte zu
-  if (pf?.text && !similarText(pf.text, face.oracle_text)) pf = null;
+  // (alte Karten weichen inhaltlich stark vom Oracle-Text ab – dort nicht prüfen)
+  if (pf?.text && (card.released_at || '') >= '2008-01-01' && !similarText(pf.text, face.oracle_text)) pf = null;
   if (pf?.text) face.oracle_text = cleanPrinted(pf.text);
   if (pf?.type) face.type_line = pf.type.replace(/ [–-] /g, ' — ');
   face.printed = !!pf?.text;
@@ -664,7 +665,7 @@ export async function renderCard(canvas, model, deps) {
       const region = { x: textBox.x - 10, y: textBox.y - 24, w: textBox.w + 18, h: textBox.h + 36 };
       const found = scanLines(scan, region, W, H, L.ptPlate && (flags.pt || flags.planeswalker) ? { x: L.ptPlate.x - 12, y: L.ptPlate.y - 8 } : null);
       // nur echte Textzeilen: beginnen in der Textspalte, liegen im Textfeld
-      let lines = found && found.filter((l) => l.left < region.x + region.w * 0.6 && l.left >= textBox.x - 8
+      let lines = found && found.filter((l) => l.left < region.x + region.w * 0.6 && l.left >= textBox.x - 24
         && l.base <= textBox.y + textBox.h + 8 && l.base > textBox.y);
       // Rahmen weichen minimal ab (Druck/Scan vs. Card-Conjurer-Grafik): Zeilen vom Textfeld des
       // Scans in das eigene Textfeld umrechnen, damit die Abstände zu den Kanten gleich bleiben
@@ -672,9 +673,12 @@ export async function renderCard(canvas, model, deps) {
       const eu = lines && boxEdges(ctx.canvas, W, H, L.box);
       if (eo && eu && Math.abs(eo.R - eo.L - (eu.R - eu.L)) < 40 && Math.abs(eo.B - eo.T - (eu.B - eu.T)) < 40) {
         const sx = (eu.R - eu.L) / (eo.R - eo.L); const sy = (eu.B - eu.T) / (eo.B - eo.T);
-        const mx = (x) => eu.L + (x - eo.L) * sx; const my = (y) => eu.T + (y - eo.T) * sy;
-        lines = lines.map((l) => ({ ...l, base: my(l.base), left: mx(l.left), right: mx(l.right) }));
-        model.boxMap = { eo, eu };
+        // nur plausible Abbildungen (Kantenerkennung kann auf strukturierten Textfeldern danebenliegen)
+        if (Math.abs(sx - 1) < 0.03 && Math.abs(sy - 1) < 0.03 && Math.abs(eu.L - eo.L) < 15 && Math.abs(eu.T - eo.T) < 15) {
+          const mx = (x) => eu.L + (x - eo.L) * sx; const my = (y) => eu.T + (y - eo.T) * sy;
+          lines = lines.map((l) => ({ ...l, base: my(l.base), left: mx(l.left), right: mx(l.right) }));
+          model.boxMap = { eo, eu };
+        }
       }
       // Zeilen, die mit einem (hellen) Manasymbol beginnen, an die gemeinsame linke Kante setzen
       if (lines && lines.length > 1) {
@@ -682,7 +686,14 @@ export async function renderCard(canvas, model, deps) {
         const common = lefts[Math.floor(lefts.length / 2)];
         lines = lines.map((l) => (l.left > common && l.left - common < 30 ? { ...l, left: common } : l));
       }
-      const copied = lines && layoutFromLines(ctx, textParas, lay.cap, lines, textBox, lay.M);
+      let copied = lines && layoutFromLines(ctx, textParas, lay.cap, lines, textBox, lay.M);
+      // Schriftgröße aus den gemessenen Zeilenlängen nachführen, wenn die Breiten nicht passen
+      for (let it = 0; it < 3 && copied && copied.worst >= 0.04; it++) {
+        const c2 = copied.cap * Math.max(0.8, Math.min(1.3, copied.widthRatio));
+        const alt = layoutFromLines(ctx, textParas, c2, lines, textBox, lay.M);
+        if (!alt || alt.worst >= copied.worst) break;
+        copied = alt;
+      }
       if (globalThis.__fitDebug) console.log('boxmap', JSON.stringify(model.boxMap || null));
       if (globalThis.__fitDebug) console.log('copy', JSON.stringify((lines || []).map((l) => [Math.round(l.base), Math.round(l.left), Math.round(l.right)])), textParas.length, copied && copied.worst);
       if (copied && copied.worst < 0.12) { lay = copied; model.layoutCopied = true; }
@@ -782,7 +793,10 @@ async function drawColorIndicator(ctx, colors, T) {
 
 /** Bereinigt gedruckten Text aus MTGJSON (Zeilenenden, fehlerhaftes Schnee-Symbol "{S}i}"). */
 function cleanPrinted(t) {
-  return t.replace(/\\r/g, '').replace(/\r/g, '').replace(/\{S\}i\}/g, '{S}').replace(/\s+$/, '');
+  return t.replace(/\\r/g, '').replace(/\r/g, '').replace(/\{S\}i\}/g, '{S}')
+    // alte Gatherer-Kürzel für Tap/Untap ("ocT", "ocQ")
+    .replace(/\bocT\b/g, '{T}').replace(/\bocQ\b/g, '{Q}')
+    .replace(/\s+$/, '');
 }
 
 /** Gedruckter und Oracle-Text gehören zur selben Karte? (Wortüberdeckung) */

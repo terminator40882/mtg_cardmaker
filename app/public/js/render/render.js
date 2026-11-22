@@ -433,7 +433,10 @@ export async function renderCard(canvas, model, deps) {
     drawLayers(ctx, cc, W, H, scale, { borderColor: model.borderKey !== 'black' ? model.borderColor : null });
     // Farben der Rahmenbereiche an den gedruckten Scan angleichen (Druckfarben sind dunkler/satter)
     if (opts.alignArt && opts.matchColors !== false && scan && model.artAligned) {
-      matchFrameColors(ctx, cc, scan, W, H, [box]);
+      // maskenlose 1993er-Rahmen: Textfeld als eigener Bereich (Legends/Revised haben andere Töne)
+      const rects = L.style === 'retro' && L.variant === '93' && L.box
+        ? [{ x: (L.box.x + 10) / W, y: (L.box.y + 10) / H, width: (L.box.w - 20) / W, height: (L.box.h - 20) / H }] : [];
+      matchFrameColors(ctx, cc, scan, W, H, [box], rects);
     }
     if (opts.watermark !== false) await drawWatermark(ctx, model, L, scale);
   } else {

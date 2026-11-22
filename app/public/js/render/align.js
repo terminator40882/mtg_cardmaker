@@ -291,7 +291,7 @@ function firstLine(m) {
   const sm = new Float32Array(m.h);
   for (let y = 0; y < m.h; y++) { let s = 0; for (let x = 0; x < m.w; x++) s += m.out[y * m.w + x]; sm[y] = s; }
   // Rahmenlinien (fast volle Breite) sind keine Schrift
-  for (let y = 0; y < m.h; y++) if (sm[y] > m.w * 0.35) { sm[y] = 0; if (y > 0) sm[y - 1] = Math.min(sm[y - 1], m.w * 0.05); if (y < m.h - 1) sm[y + 1] = 0; }
+  for (let y = 0; y < m.h; y++) if (sm[y] > m.w * 0.7) { sm[y] = 0; if (y > 0) sm[y - 1] = Math.min(sm[y - 1], m.w * 0.05); if (y < m.h - 1) sm[y + 1] = 0; }
   const max = Math.max(...sm);
   if (!max) return null;
   const thr = max * 0.35;

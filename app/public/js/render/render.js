@@ -13,7 +13,7 @@ import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT } from './dfc.js';
 import { renderLandscape } from './landscape.js';
 import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield, setPwIcons } from './planeswalker.js';
 import { ccStatus, ccLayers, loadLayers, drawLayers, ccArtBounds, drawWatermark, ccPwIcons } from './cc.js';
-import { alignArt, fitTextToScan, blockExtent, scanLines } from './align.js';
+import { alignArt, fitTextToScan, blockExtent, scanLines, boxEdges } from './align.js';
 
 export { W, H };
 
@@ -53,11 +53,14 @@ export function buildModel(card, set, opts) {
     artist: f.artist || card.artist || '',
   };
   // Gedruckter Text/Typ dieses Drucks (MTGJSON originalText/originalType) statt Oracle-Text
-  const pf = opts.printedText !== false && Array.isArray(card.printed)
+  let pf = opts.printedText !== false && Array.isArray(card.printed)
     ? (card.printed.find((p) => p.name === face.name) || card.printed[faceIdx] || null) : null;
-  if (pf?.text) face.oracle_text = pf.text.replace(/\s+$/, '');
+  // Plausibilitätsprüfung: MTGJSON ordnet vereinzelt den Text einer anderen Karte zu
+  if (pf?.text && !similarText(pf.text, face.oracle_text)) pf = null;
+  if (pf?.text) face.oracle_text = cleanPrinted(pf.text);
   if (pf?.type) face.type_line = pf.type.replace(/ [–-] /g, ' — ');
   face.printed = !!pf?.text;
+  face.type_line = historicTypeLine(face.type_line, card.released_at || '', face.oracle_text);
   type = face.type_line;
   // auch die anderen Hälften/Seiten (Adventure, Split, MDFC-Lasche) mit gedrucktem Text
   if (opts.printedText !== false && Array.isArray(card.printed) && card.card_faces) {
@@ -65,7 +68,7 @@ export function buildModel(card, set, opts) {
       ...card,
       card_faces: card.card_faces.map((cf) => {
         const p = card.printed.find((x) => x.name === cf.name);
-        return p?.text ? { ...cf, oracle_text: p.text.replace(/\r/g, '').replace(/\s+$/, ''), type_line: p.type ? p.type.replace(/ [–-] /g, ' \u2014 ') : cf.type_line } : cf;
+        return p?.text && similarText(p.text, cf.oracle_text) ? { ...cf, oracle_text: cleanPrinted(p.text), type_line: p.type ? p.type.replace(/ [–-] /g, ' \u2014 ') : cf.type_line } : cf;
       }),
     };
   }
@@ -589,7 +592,8 @@ export async function renderCard(canvas, model, deps) {
           let c = fit.cap;
           const fits = (cc) => {
             const lay = fitText(ctx, vp, textBox, { ...baseOpts, fixedCap: cc, metrics: withK(fit.k) });
-            return !lay.overflow && lay.height <= textBox.h + 4 && !lay.collides;
+            // etwas Luft zu den Kanten des Textfelds lassen
+            return !lay.overflow && lay.height <= textBox.h - 12 && !lay.collides;
           };
           while (c > L.rules.minCap && !fits(c)) c -= 0.5;
           o = { ...baseOpts, fixedCap: c, metrics: withK(fit.k) };
@@ -620,11 +624,28 @@ export async function renderCard(canvas, model, deps) {
       && !opts.fontCap && !(flags.planeswalker && !retroLayout)) {
       // Fenster knapp um die Textspalte (ohne Rahmenkanten des Textfelds)
       const region = { x: textBox.x - 10, y: textBox.y - 24, w: textBox.w + 18, h: textBox.h + 36 };
-      const found = scanLines(scan, region, W, H);
+      const found = scanLines(scan, region, W, H, L.ptPlate && (flags.pt || flags.planeswalker) ? { x: L.ptPlate.x - 12, y: L.ptPlate.y - 8 } : null);
       // nur echte Textzeilen: beginnen in der Textspalte, liegen im Textfeld
-      const lines = found && found.filter((l) => l.left < region.x + region.w * 0.6 && l.left >= textBox.x - 8
+      let lines = found && found.filter((l) => l.left < region.x + region.w * 0.6 && l.left >= textBox.x - 8
         && l.base <= textBox.y + textBox.h + 8 && l.base > textBox.y);
+      // Rahmen weichen minimal ab (Druck/Scan vs. Card-Conjurer-Grafik): Zeilen vom Textfeld des
+      // Scans in das eigene Textfeld umrechnen, damit die Abstände zu den Kanten gleich bleiben
+      const eo = lines && boxEdges(scan, W, H, L.box);
+      const eu = lines && boxEdges(ctx.canvas, W, H, L.box);
+      if (eo && eu && Math.abs(eo.R - eo.L - (eu.R - eu.L)) < 40 && Math.abs(eo.B - eo.T - (eu.B - eu.T)) < 40) {
+        const sx = (eu.R - eu.L) / (eo.R - eo.L); const sy = (eu.B - eu.T) / (eo.B - eo.T);
+        const mx = (x) => eu.L + (x - eo.L) * sx; const my = (y) => eu.T + (y - eo.T) * sy;
+        lines = lines.map((l) => ({ ...l, base: my(l.base), left: mx(l.left), right: mx(l.right) }));
+        model.boxMap = { eo, eu };
+      }
+      // Zeilen, die mit einem (hellen) Manasymbol beginnen, an die gemeinsame linke Kante setzen
+      if (lines && lines.length > 1) {
+        const lefts = lines.map((l) => l.left).sort((a, b) => a - b);
+        const common = lefts[Math.floor(lefts.length / 2)];
+        lines = lines.map((l) => (l.left > common && l.left - common < 30 ? { ...l, left: common } : l));
+      }
       const copied = lines && layoutFromLines(ctx, textParas, lay.cap, lines, textBox, lay.M);
+      if (globalThis.__fitDebug) console.log('boxmap', JSON.stringify(model.boxMap || null));
       if (globalThis.__fitDebug) console.log('copy', JSON.stringify((lines || []).map((l) => [Math.round(l.base), Math.round(l.left), Math.round(l.right)])), textParas.length, copied && copied.worst);
       if (copied && copied.worst < 0.12) { lay = copied; model.layoutCopied = true; }
     }
@@ -719,6 +740,22 @@ async function drawColorIndicator(ctx, colors, T) {
     return 0;
   }
   return b.w + 0.004 * W;
+}
+
+/** Bereinigt gedruckten Text aus MTGJSON (Zeilenenden, fehlerhaftes Schnee-Symbol "{S}i}"). */
+function cleanPrinted(t) {
+  return t.replace(/\\r/g, '').replace(/\r/g, '').replace(/\{S\}i\}/g, '{S}').replace(/\s+$/, '');
+}
+
+/** Gedruckter und Oracle-Text gehören zur selben Karte? (Wortüberdeckung) */
+function similarText(a, b) {
+  if (!b) return true;
+  const words = (t) => new Set(String(t).toLowerCase().replace(/\([^)]*\)/g, ' ').match(/[a-z]{3,}/g) || []);
+  const A = words(a); const B = words(b);
+  if (!A.size || !B.size) return true;
+  let common = 0;
+  for (const w of A) if (B.has(w)) common++;
+  return common / Math.min(A.size, B.size) >= 0.4;
 }
 
 /**

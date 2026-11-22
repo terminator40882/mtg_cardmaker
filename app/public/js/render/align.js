@@ -412,9 +412,14 @@ export function blockExtent(src, box, W, H, f) {
  * (Kartenkoordinaten). Kernbänder (x-Höhe) werden relativ zur lokalen Zeilendichte
  * erkannt, damit auch kurze Zeilen ("turn.") gefunden werden.
  */
-export function scanLines(scan, box, W, H) {
+export function scanLines(scan, box, W, H, exclude = null) {
   const f = (scan.naturalWidth || scan.width) / W;
   const m = inkMask(scan, box, f, W, H);
+  // Bereich ausblenden (P/T-Box ragt unten rechts ins Textfeld)
+  if (exclude) {
+    const ex = Math.max(0, Math.round((exclude.x - box.x) * f)); const ey = Math.max(0, Math.round((exclude.y - box.y) * f));
+    for (let y = ey; y < m.h; y++) for (let x = ex; x < m.w; x++) m.out[y * m.w + x] = 0;
+  }
   const r = new Float32Array(m.h);
   for (let y = 0; y < m.h; y++) { let s = 0; for (let x = 0; x < m.w; x++) s += m.out[y * m.w + x]; r[y] = s; }
   // 1) Tintenblöcke, getrennt durch (fast) leere Zeilen
@@ -435,8 +440,11 @@ export function scanLines(scan, box, W, H) {
   // 2) Blöcke mit mehreren Zeilen (enger Durchschuss) an der dünnsten Stelle teilen
   const heights = runs.map(([a, b]) => b - a).sort((p, q) => p - q);
   const typical = heights[Math.floor(heights.length / 2)];
+  // Zeilenabstand (Autokorrelation) begrenzt die Höhe einer einzelnen Zeile
+  const st = lineStats(m);
+  const maxOne = st?.pitch ? Math.min(typical * 1.6, st.pitch * 1.35) : typical * 1.6;
   const split = (a, b) => {
-    if (b - a <= typical * 1.6) return [[a, b]];
+    if (b - a <= maxOne) return [[a, b]];
     let mi = -1; let mv = Infinity;
     for (let y = Math.round(a + typical * 0.55); y < b - typical * 0.55; y++) if (r[y] < mv) { mv = r[y]; mi = y; }
     if (mi < 0) return [[a, b]];
@@ -461,4 +469,38 @@ export function scanLines(scan, box, W, H) {
     lines.push({ base: box.y + base / f, left: box.x + left / f, right: box.x + (right + 1) / f, top: box.y + a / f });
   }
   return lines.length ? lines : null;
+}
+
+// ---------- Innenkanten des Textfelds (für die Übertragung Scan -> eigener Rahmen) ----------
+
+/**
+ * Misst die Innenkanten des Textfelds (links, rechts, oben, unten) in Kartenkoordinaten.
+ * box = ungefähre Lage des Textfelds. Links/rechts: Spaltenprofil (Median über die mittleren
+ * Zeilen), oben/unten: schmaler textfreier Streifen innen am linken Rand.
+ */
+export function boxEdges(src, W, H, box) {
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(src, 0, 0, W, H);
+  const d = x.getImageData(0, 0, W, H).data;
+  const lum = (px, py) => { const i = (py * W + px) * 4; return d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114; };
+  const med = (a) => { const s = [...a].sort((p, q) => p - q); return s[Math.floor(s.length / 2)]; };
+  const y0 = Math.round(box.y + box.h * 0.2); const y1 = Math.round(box.y + box.h * 0.75);
+  const col = (px) => { const v = []; for (let py = y0; py < y1; py += 3) v.push(lum(px, py)); return med(v); };
+  const cx0 = Math.round(box.x + box.w * 0.3); const cx1 = Math.round(box.x + box.w * 0.7);
+  const innerVals = []; for (let px = cx0; px < cx1; px += 9) innerVals.push(col(px));
+  const inner = med(innerVals);
+  let L = null; let R = null;
+  for (let px = cx0; px > box.x - 40; px--) if (col(px) < inner * 0.72) { L = px; break; }
+  for (let px = cx1; px < box.x + box.w + 40; px++) if (col(px) < inner * 0.72) { R = px; break; }
+  if (L == null || R == null) return null;
+  const row = (py) => { const v = []; for (let px = L + 4; px < L + 16; px++) v.push(lum(px, py)); return med(v); };
+  const rv = []; for (let py = y0; py < y1; py += 5) rv.push(row(py));
+  const inner2 = med(rv);
+  let T = null; let B = null;
+  for (let py = Math.round(box.y + box.h * 0.3); py > box.y - 60; py--) if (row(py) < inner2 * 0.72) { T = py; break; }
+  for (let py = Math.round(box.y + box.h * 0.6); py < box.y + box.h + 60; py++) if (row(py) < inner2 * 0.72) { B = py; break; }
+  if (T == null || B == null) return null;
+  return { L, R, T, B };
 }

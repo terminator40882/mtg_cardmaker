@@ -108,7 +108,7 @@ LAYOUTS.pw = {
   typePlate: { x: 83, y: 1179, w: 1334, h: 116 },
   nameText: { x: 121, right: 1386, baseline: 156, cap: 56, family: 'CMTitle' },
   typeText: { x: 124, right: 1386, baseline: 1258, cap: 49, family: 'CMTitle' },
-  cost: { d: 60, gap: 4, right: 1386, cy: 128, shadow: { dx: -3, dy: 4 } },
+  cost: { d: 72, gap: 4, right: 1388, cy: 134, shadow: { dx: -3, dy: 4 } }, // an Planeswalker-Scans nachgemessen
   setSym: { right: 1394, cy: 1238, h: 74, maxW: 150 },
   pwBox: { x: 174, y: 1310, w: 1212, h: 576, r: 30 },
   text: { x: 268, y: 1310, w: 1104, h: 576 },

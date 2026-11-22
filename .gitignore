@@ -1,3 +1,6 @@
 node_modules/
 app/data/
 *.log
+
+# Lokale Card-Conjurer-Assets (1,9 GB, Rahmen-Rechte bei WotC) – nicht versionieren
+Assets/

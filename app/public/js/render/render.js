@@ -525,7 +525,10 @@ export async function renderCard(canvas, model, deps) {
         const caps = [];
         for (let c = auto.cap * 1.3; c >= auto.cap * 0.8; c -= 0.5) caps.push(c);
         // innen etwas Abstand: die Kontur des Textfelds im Scan ist keine Schrift
-        const box = { x: L.text.x + 4, y: L.pwBox.y + 16, w: L.text.w - 8, h: L.pwBox.h - 24 };
+        // Messfenster ab der ersten Fähigkeit: statisch -> weiter links, mit Loyalität -> rechts der Symbole
+        const firstRule = rulesParas.find((p) => p.kind === 'rules');
+        const sh = firstRule?.loyalty ? 0 : Math.round(0.044 * W);
+        const box = { x: L.text.x - sh + 4, y: L.pwBox.y + 4, w: L.text.w + sh - 8, h: L.pwBox.h - 12 };
         const best = fitTextToScan(scan, box, W, H, caps, [1], (x, c) => {
           const lay = layoutPlaneswalker(x, rulesParas, L, { fixedCap: c.cap });
           if (!lay) return false;
@@ -545,7 +548,36 @@ export async function renderCard(canvas, model, deps) {
         }
       }
     }
-    const pw = layoutPlaneswalker(ctx, rulesParas, L, { fixedCap: pwCap });
+    let pw = layoutPlaneswalker(ctx, rulesParas, L, { fixedCap: pwCap });
+    // Original-Layout übernehmen (wie beim Regeltext): Zeilen aus dem Scan, Zeilengrenzen daraus
+    if (pw && scan && opts.alignArt && opts.copyLayout !== false && face.printed && opts.showReminder && !opts.fontCap) {
+      const shiftX = Math.round(0.044 * W);
+      const pRules = rulesParas.filter((p) => p.kind === 'rules');
+      // links der Textspalte stehen Loyalitätssymbole -> ausblenden, linke Kanten kommen aus dem Layout
+      const region = { x: L.text.x - 2, y: L.pwBox.y + 6, w: L.text.w + 12, h: L.pwBox.h - 4 };
+      const ex = L.shield ? { x: L.shield.cx - L.shield.w / 2 - 10, y: L.shield.cy - L.shield.h / 2 - 10 } : null;
+      const lines = scanLines(scan, region, W, H, ex);
+      const copied = lines && layoutFromLines(ctx, pRules, pw.cap, lines, L.text, METRICS,
+        (pi) => (pRules[pi].loyalty ? L.text.x : L.text.x - shiftX));
+      if (globalThis.__fitDebug) console.log('pwcopy', lines && lines.length, pRules.length, copied && copied.worst);
+      if (copied && copied.worst < 0.12 && copied.blocks.length === pRules.length) {
+        const c = copied.cap;
+        const rows = copied.blocks.map((b, i) => {
+          const first = b.lines[0].baseline - c; const last = b.lines[b.lines.length - 1].baseline + c * METRICS.descent;
+          return { first, last, b };
+        });
+        pw = {
+          cap: c,
+          rows: rows.map((r, i) => ({
+            top: i === 0 ? L.pwBox.y : (rows[i - 1].last + r.first) / 2,
+            bottom: i === rows.length - 1 ? L.pwBox.y + L.pwBox.h : (r.last + rows[i + 1].first) / 2,
+            para: pRules[i],
+            lay: { cap: c, M: METRICS, blocks: [{ ...r.b, flavorBarY: null }], box: L.text, offset: 0 },
+          })),
+        };
+        model.layoutCopied = true;
+      }
+    }
     if (pw) {
       drawPlaneswalkerText(ctx, pw, L, model.palettes[0], symbols);
       model.textCap = pw.cap;
@@ -571,7 +603,8 @@ export async function renderCard(canvas, model, deps) {
       const scanExt = blockExtent(scan, textBox, W, H, fScan);
       // Varianten: Oracle-Text enthält oft Reminder-Text, der auf diesem Druck fehlt
       const variants = [paras];
-      if (opts.showReminder && !face.printed && /\(/.test(face.oracle_text || '')) {
+      // auch beim gedruckten Text: MTGJSON führt vereinzelt Reminder-Text, der auf diesem Druck fehlt
+      if (opts.showReminder && /\(/.test(face.oracle_text || '')) {
         const noRem = parseRules(face.oracle_text, { showReminder: false, keywords, planeswalker: flags.planeswalker && !retroLayout });
         variants.push([...noRem, ...flavorParas]);
       }

@@ -325,7 +325,7 @@ export function drawFittedLine(ctx, text, family, cap, x, baseline, maxW, opts =
  * und an der linken Kante der Original-Zeile; minimale Laufweitenkorrektur (±4 %) je Zeile.
  * lines = [{base, left, right}] in Kartenkoordinaten. Liefert ein Layout für drawText oder null.
  */
-export function layoutFromLines(ctx, paras, c, lines, box, M = METRICS) {
+export function layoutFromLines(ctx, paras, c, lines, box, M = METRICS, paraLeft = null) {
   // Wörter aller Absätze mit Breiten
   const words = [];
   paras.forEach((para, pi) => {
@@ -346,9 +346,10 @@ export function layoutFromLines(ctx, paras, c, lines, box, M = METRICS) {
   const dp = Array.from({ length: N + 1 }, () => new Float64Array(n + 1).fill(INF));
   const from = Array.from({ length: N + 1 }, () => new Int32Array(n + 1).fill(-1));
   dp[0][0] = 0;
+  const leftOf = (j, pi) => (paraLeft ? paraLeft(pi) : lines[j].left);
   for (let j = 1; j <= N; j++) {
-    const target = lines[j - 1].right - lines[j - 1].left;
     for (let k = 1; k <= n; k++) {
+      const target = lines[j - 1].right - leftOf(j - 1, words[k - 1].pi);
       // Zeile endet vor einem Absatzwechsel oder am Ende? (Pflichtumbruch wird durch "gleicher Absatz" erzwungen)
       for (let i = k - 1; i >= 0; i--) {
         if (words[i].pi !== words[k - 1].pi) break;
@@ -380,13 +381,14 @@ export function layoutFromLines(ctx, paras, c, lines, box, M = METRICS) {
       x += words[t].w;
       lw.push(words[t].word);
     }
-    const target = L.right - L.left;
+    const lx = leftOf(j, words[i].pi);
+    const target = L.right - lx;
     const sx = Math.min(1.04, Math.max(0.96, target / Math.max(x, 1)));
     worst = Math.max(worst, Math.abs(target / Math.max(x, 1) - 1));
     const pi = words[i].pi;
     let block = blocks[blocks.length - 1];
     if (!block || block.pi !== pi) { block = { pi, para: paras[pi], lines: [], flavorBarY: null }; blocks.push(block); }
-    block.lines.push({ words: lw, w: x, baseline: L.base, x: L.left, sx, dx: 0 });
+    block.lines.push({ words: lw, w: x, baseline: L.base, x: lx, sx, dx: 0 });
   });
   // Flavor-Trennlinie mittig zwischen letzter Regel- und erster Flavor-Zeile
   for (let b = 1; b < blocks.length; b++) {

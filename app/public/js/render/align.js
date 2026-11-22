@@ -290,13 +290,18 @@ export function fitTextMetrics(scan, box, W, H, cands, draw, key) {
 function firstLine(m) {
   const sm = new Float32Array(m.h);
   for (let y = 0; y < m.h; y++) { let s = 0; for (let x = 0; x < m.w; x++) s += m.out[y * m.w + x]; sm[y] = s; }
+  // Rahmenlinien (fast volle Breite) sind keine Schrift
+  for (let y = 0; y < m.h; y++) if (sm[y] > m.w * 0.35) { sm[y] = 0; if (y > 0) sm[y - 1] = Math.min(sm[y - 1], m.w * 0.05); if (y < m.h - 1) sm[y + 1] = 0; }
   const max = Math.max(...sm);
   if (!max) return null;
   const thr = max * 0.35;
   let a = -1; let b = -1;
   for (let y = 0; y < m.h; y++) {
     if (sm[y] > thr && a < 0) a = y;
-    if (a >= 0 && sm[y] <= thr) { b = y; break; }
+    if (a >= 0 && sm[y] <= thr) {
+      if (y - a < 5) { a = -1; continue; } // Splitter (z. B. Kante des Textfelds) überspringen
+      b = y; break;
+    }
   }
   if (a < 0) return null;
   if (b < 0) b = m.h;

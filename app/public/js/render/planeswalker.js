@@ -9,13 +9,17 @@ const rgba = (hex, a) => `rgba(${hexToRgb(hex).join(',')},${a})`;
 /** Teilt das Textfeld in Zeilen (eine pro Fähigkeit) und sucht die passende Größe. */
 export function layoutPlaneswalker(ctx, paras, L, opts = {}) {
   const box = L.text;
+  // Statische Fähigkeiten (ohne Loyalitätskosten) beginnen weiter links und nutzen die volle Breite
+  // (Card Conjurer: x − 0,044, Breite + 0,044; an Scans bestätigt)
+  const shift = Math.round(0.044 * L.W);
+  const boxFor = (p) => (p.loyalty ? box : { ...box, x: box.x - shift, w: box.w + shift });
   const rules = paras.filter((p) => p.kind === 'rules');
   if (!rules.length) return null;
   const max = L.rules.maxCap;
   const step = L.rules.step || max / 18;
   let best = null;
   for (let c = opts.fixedCap || max; c >= L.rules.minCap; c -= step) {
-    const items = rules.map((p) => layoutAll(ctx, [p], c, box.w, METRICS));
+    const items = rules.map((p) => layoutAll(ctx, [p], c, boxFor(p).w, METRICS));
     const heights = items.map((it) => it.height);
     const total = heights.reduce((a, b) => a + b, 0);
     const minPad = c * 0.85;
@@ -27,7 +31,7 @@ export function layoutPlaneswalker(ctx, paras, L, opts = {}) {
   }
   if (!best) {
     const c = L.rules.minCap;
-    const items = rules.map((p) => layoutAll(ctx, [p], c, box.w, METRICS));
+    const items = rules.map((p) => layoutAll(ctx, [p], c, boxFor(p).w, METRICS));
     best = { c, items, heights: items.map((i) => i.height), total: items.reduce((a, i) => a + i.height, 0) };
   }
   // Freiraum gleichmäßig verteilen, Text in jeder Zeile vertikal mittig
@@ -38,7 +42,7 @@ export function layoutPlaneswalker(ctx, paras, L, opts = {}) {
     const textTop = y + pad / 2;
     y += best.heights[i] + pad;
     for (const b of it.blocks) for (const l of b.lines) l.dx = 0;
-    return { top, bottom: y, para: rules[i], lay: { ...it, box, offset: textTop - it.visTop } };
+    return { top, bottom: y, para: rules[i], lay: { ...it, box: boxFor(rules[i]), offset: textTop - it.visTop } };
   });
   return { cap: best.c, rows };
 }

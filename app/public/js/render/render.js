@@ -12,7 +12,7 @@ import { drawAdventure } from './adventure.js';
 import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT } from './dfc.js';
 import { renderLandscape } from './landscape.js';
 import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield, setPwIcons } from './planeswalker.js';
-import { ccStatus, ccLayers, loadLayers, drawLayers, ccArtBounds, drawWatermark, ccPwIcons } from './cc.js';
+import { ccStatus, ccLayers, loadLayers, drawLayers, ccArtBounds, drawWatermark, ccPwIcons, matchFrameColors } from './cc.js';
 import { alignArt, fitTextToScan, blockExtent, scanLines, boxEdges } from './align.js';
 
 export { W, H };
@@ -428,6 +428,10 @@ export async function renderCard(canvas, model, deps) {
     if (model.palettes[0].variant === 'devoid') drawArt(ctx, art, { x: 0, y: 0, w: W, h: H }, adj, box);
     else drawArt(ctx, art, L.kind === 'pw' ? L.art : box, adj, box);
     drawLayers(ctx, cc, W, H, scale, { borderColor: model.borderKey !== 'black' ? model.borderColor : null });
+    // Farben der Rahmenbereiche an den gedruckten Scan angleichen (Druckfarben sind dunkler/satter)
+    if (opts.alignArt && opts.matchColors !== false && scan && model.artAligned) {
+      matchFrameColors(ctx, cc, scan, W, H, [box]);
+    }
     if (opts.watermark !== false) await drawWatermark(ctx, model, L, scale);
   } else {
     if (model.palettes[0].variant === 'devoid' && L.style === 'm15') {
@@ -801,6 +805,8 @@ function similarText(a, b) {
 export function historicTypeLine(type, released, text = '') {
   let t = type;
   if (released && released < '2017-04-28' && /\bPlaneswalker\b/.test(t)) t = t.replace(/^Legendary /, '');
+  // "Kindred" hieß bis Mitte 2024 "Tribal"
+  if (released && released < '2024-06-07') t = t.replace(/\bKindred\b/, 'Tribal');
   if (released && released < '1999-04-21') {
     let m;
     if ((m = /^Legendary Creature — (.+)$/.exec(t))) t = 'Summon Legend';

@@ -80,6 +80,10 @@ Zeile aus dem Scan übernommen (Zeilenerkennung über leere Pixelzeilen, Umbrüc
 auf die gemessenen Zeilenlängen, max. ±4 % Laufweitenkorrektur je Zeile). Wird der Text angepasst, greift das
 automatische Layout.
 
+**Farbabgleich** (Option, Standard an): Druckfarben sind dunkler und satter als die Card-Conjurer-Grafiken.
+Jeder Rahmenbereich (Textfeld, Namens-/Typleiste, Rahmen, Kontur, P/T-Box – je Maske der Card-Conjurer-Ebene)
+wird per Verstärkung je Farbkanal an die Medianfarbe des Scans angeglichen.
+
 **Delta messen:** `node tools/delta.mjs --url http://localhost:8080 m19/156 grn/192 …` rendert die Karten im
 Browser (Playwright), vergleicht sie mit dem Scryfall-PNG und gibt die mittlere absolute Abweichung (0–255) je
 Bereich aus; pro Karte entsteht ein Bild Nachbau | Original | Differenz.

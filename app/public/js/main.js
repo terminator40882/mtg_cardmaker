@@ -86,7 +86,7 @@ async function selectPrint(id) {
     if (m) card = { ...card, set: m[1].toLowerCase(), collector_number: m[2] };
     const [set, printed] = await Promise.all([
       api.set(card.set).catch(() => null),
-      api.printed(card.set, card.id).catch(() => null),
+      api.printed(card.set, card.id, card.name).catch(() => null),
     ]);
     if (state.printId !== id) return;
     card = { ...card, printed };
@@ -133,6 +133,7 @@ function currentOptions(scale = 1) {
     artUrl: api.artUrl(state.card.id, hasFaceArt ? face : 0),
     alignArt: $('opt-align').checked,
     copyLayout: $('opt-copylayout').checked,
+    matchColors: $('opt-matchcolors').checked,
     scanUrl: faceImage(state.card, face).png ? `/asset?u=${encodeURIComponent(faceImage(state.card, face).png)}` : null,
     scale,
   };
@@ -169,7 +170,7 @@ function scheduleRender() {
   });
 }
 
-for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-reminder', 'opt-printed', 'opt-size', 'opt-source', 'opt-frame', 'opt-border', 'opt-footer', 'opt-align', 'opt-copylayout', 'art-zoom', 'art-dx', 'art-dy']) {
+for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-reminder', 'opt-printed', 'opt-size', 'opt-source', 'opt-frame', 'opt-border', 'opt-footer', 'opt-align', 'opt-copylayout', 'opt-matchcolors', 'art-zoom', 'art-dx', 'art-dy']) {
   $(id).addEventListener('input', scheduleRender);
 }
 $('opt-face').addEventListener('input', () => { updateOriginal(); scheduleRender(); });

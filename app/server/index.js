@@ -35,7 +35,7 @@ app.get('/api/card/:id', wrap(async (req, res) => res.json(await sf.getCard(req.
 app.get('/api/card-by/:set/:cn', wrap(async (req, res) => res.json(await sf.getCardBySet(req.params.set, req.params.cn))));
 // Gedruckter Text eines Drucks (MTGJSON); leer, wenn unbekannt
 app.get('/api/printed/:set/:id', wrap(async (req, res) => {
-  res.json({ faces: await printed(req.params.set, req.params.id).catch(() => null) });
+  res.json({ faces: await printed(req.params.set, req.params.id, String(req.query.name || '')).catch(() => null) });
 }));
 app.get('/api/set/:code', wrap(async (req, res) => {
   const set = await sf.getSet(req.params.code);

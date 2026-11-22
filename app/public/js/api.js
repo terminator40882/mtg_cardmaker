@@ -23,4 +23,4 @@ export const symbology = () => once('symbology', async () => {
 export const catalog = (name) => once(`catalog:${name}`, async () => new Set((await getJson(`/api/catalog/${name}`)).map((s) => s.toLowerCase())));
 export const fontStatus = () => getJson('/api/fonts');
 export const artUrl = (id, face = 0) => `/api/art/${id}?face=${face}`;
-export const printed = (set, id) => once(`printed:${set}:${id}`, () => getJson(`/api/printed/${set}/${id}`).then((r) => r.faces).catch(() => null));
+export const printed = (set, id, name = '') => once(`printed:${set}:${id}`, () => getJson(`/api/printed/${set}/${id}?name=${encodeURIComponent(name)}`).then((r) => r.faces).catch(() => null));

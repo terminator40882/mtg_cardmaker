@@ -572,3 +572,90 @@ export async function ccPwIcons(tall, model) {
     return { plus, minus, neutral, lineOdd, lineEven, textMask };
   } catch { return null; }
 }
+
+// ---------- Farbabgleich der Rahmenbereiche mit dem Scan ----------
+
+/**
+ * Passt die Farbe jedes Rahmenbereichs (Textfeld, Leisten, Rahmen, Kontur, P/T-Box …) an den
+ * Original-Scan an: je Bereich (= Maske der Card-Conjurer-Ebene bzw. Rechteck) wird ein
+ * Verstärkungsfaktor je Farbkanal aus den Medianfarben bestimmt (Schrift/Symbole im Scan
+ * werden über ein Helligkeits-Perzentil ausgeblendet) und auf die gezeichneten Pixel angewandt.
+ * Muss nach dem Rahmen und vor Text/Symbolen aufgerufen werden.
+ */
+export function matchFrameColors(ctx, layers, scan, W, H, exclude = [], extraRects = []) {
+  const cv = ctx.canvas;
+  const cw = cv.width; const ch = cv.height;
+  // Bereiche: erste Maske je Ebene (ohne Rechte-Hälfte-Maske) bzw. Rechteck (bounds)
+  const regions = new Map();
+  for (const l of layers) {
+    const src = (l.masks || []).find((m) => !/maskRightHalf/.test(m));
+    if (src) {
+      const i = l.masks.indexOf(src);
+      if (!regions.has(src)) regions.set(src, { img: l.maskImages[i] });
+    } else if (l.bounds && l.image) {
+      regions.set(`rect:${JSON.stringify(l.bounds)}`, { rect: l.bounds, img: l.image });
+    }
+  }
+  // zusätzliche Rechteck-Bereiche (z. B. Textfeld/Rahmen der maskenlosen 1993er-Rahmen)
+  for (const r of extraRects) regions.set(`xrect:${JSON.stringify(r)}`, { rect: r, img: null });
+  if (!regions.size) return;
+  // Arbeitsauflösung 1/4 für die Statistik
+  const sw = Math.round(cw / 4); const sh = Math.round(ch / 4);
+  const grab = (src, w, h) => {
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.drawImage(src, 0, 0, w, h);
+    return x.getImageData(0, 0, w, h).data;
+  };
+  const ours = grab(cv, sw, sh);
+  const orig = grab(scan, sw, sh);
+  const ex = (px, py) => exclude.some((r) => px >= r.x * sw / W && px < (r.x + r.w) * sw / W && py >= r.y * sh / H && py < (r.y + r.h) * sh / H);
+  const full = ctx.getImageData(0, 0, cw, ch);
+  const fd = full.data;
+  const claimed = new Uint8Array(cw * ch); // jeder Pixel nur einmal (oberste Ebene zuerst)
+  for (const [, reg] of regions) {
+    // Maske in Arbeits- und in voller Auflösung
+    const mk = (w, h) => {
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const x = c.getContext('2d', { willReadFrequently: true });
+      if (reg.rect) {
+        const b = reg.rect;
+        if (reg.img) x.drawImage(reg.img, b.x * w, b.y * h, b.width * w, b.height * h);
+        else { x.fillStyle = '#000'; x.fillRect(b.x * w, b.y * h, b.width * w, b.height * h); }
+      } else x.drawImage(reg.img, 0, 0, w, h);
+      return x.getImageData(0, 0, w, h).data;
+    };
+    const ms = mk(sw, sh);
+    const po = []; const pr = [];
+    for (let i = 0; i < sw * sh; i++) {
+      if (ms[i * 4 + 3] < 200) continue;
+      const px = i % sw; const py = Math.floor(i / sw);
+      if (ex(px, py) || orig[i * 4 + 3] < 250) continue;
+      po.push([ours[i * 4], ours[i * 4 + 1], ours[i * 4 + 2]]);
+      pr.push([orig[i * 4], orig[i * 4 + 1], orig[i * 4 + 2]]);
+    }
+    if (po.length < 40) continue;
+    // obere 60 % der Helligkeit (ohne Schrift/Symbole im Scan) – für beide gleich gewählt
+    const sel = (arr) => {
+      const l = arr.map((p) => p[0] * 0.299 + p[1] * 0.587 + p[2] * 0.114);
+      const t = [...l].sort((a, b) => a - b)[Math.floor(l.length * 0.4)];
+      return arr.filter((_, k) => l[k] >= t);
+    };
+    const med = (arr, k) => { const v = arr.map((p) => p[k]).sort((a, b) => a - b); return v[Math.floor(v.length / 2)]; };
+    const so = sel(po); const sr = sel(pr);
+    const gain = [0, 1, 2].map((k) => Math.max(0.6, Math.min(1.5, (med(sr, k) + 1) / (med(so, k) + 1))));
+    if (gain.every((g) => Math.abs(g - 1) < 0.01)) continue;
+    const mf = mk(cw, ch);
+    for (let i = 0; i < cw * ch; i++) {
+      const a = mf[i * 4 + 3];
+      if (a < 8 || claimed[i]) continue;
+      if (a > 200) claimed[i] = 1;
+      const t = a / 255;
+      for (let k = 0; k < 3; k++) {
+        const v = fd[i * 4 + k];
+        fd[i * 4 + k] = Math.min(255, v + (v * gain[k] - v) * t);
+      }
+    }
+  }
+  ctx.putImageData(full, 0, 0);
+}

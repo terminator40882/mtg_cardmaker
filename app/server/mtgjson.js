@@ -14,7 +14,7 @@ const SET_ALIAS = { con: 'CON_' };
 
 async function loadIndex(set) {
   const code = (SET_ALIAS[set] || set).toUpperCase();
-  const key = `mtgjson:index:${code}`;
+  const key = `mtgjson:index2:${code}`;
   const cached = await cache.getJson(key, MONTH);
   if (cached) return cached;
   const res = await fetch(`${BASE}/${encodeURIComponent(code)}.json`, {
@@ -39,12 +39,19 @@ async function loadIndex(set) {
     });
   }
   for (const faces of Object.values(index)) faces.sort((a, b) => a.side.localeCompare(b.side));
+  // Namensindex als Ausweichweg (z. B. ★-Drucke, die MTGJSON ohne eigene Scryfall-ID führt)
+  const byName = {};
+  for (const faces of Object.values(index)) {
+    const key = faces.map((f) => f.name).join(' // ').toLowerCase();
+    if (faces.some((f) => f.text) && !byName[key]) byName[key] = faces;
+  }
+  index.__byName = byName;
   await cache.putJson(key, index);
   return index;
 }
 
 /** Gedruckte Seiten eines Drucks: [{side, name, text, type, flavor}] oder null. */
-export async function printed(set, scryfallId) {
+export async function printed(set, scryfallId, name = '') {
   if (!/^[a-z0-9]{2,6}$/i.test(set) || !/^[0-9a-f-]{36}$/i.test(scryfallId)) return null;
   const s = set.toLowerCase();
   if (!memory.has(s)) {
@@ -52,5 +59,8 @@ export async function printed(set, scryfallId) {
     if (memory.size > 40) memory.delete(memory.keys().next().value);
   }
   const index = await memory.get(s);
-  return index[scryfallId] || null;
+  const hit = index[scryfallId];
+  if (hit && hit.some((f) => f.text)) return hit;
+  // Ausweichweg über den Kartennamen im selben Set
+  return (name && index.__byName?.[name.toLowerCase()]) || hit || null;
 }

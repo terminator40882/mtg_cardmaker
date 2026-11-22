@@ -469,7 +469,7 @@ export async function renderCard(canvas, model, deps) {
 
   // Typzeile + Set-Symbol
   const plainSymbol = (model.card.released_at || '9999') < '1998-06-01';
-  const symW = drawSetSymbol(ctx, setIcon, model.card.rarity, { ...L.setSym, outline: retro ? 3 : 4, plain: plainSymbol });
+  const symW = drawSetSymbol(ctx, setIcon, model.card.rarity, { ...L.setSym, outline: L.setSym.outline ?? (retro ? 3 : 4), plain: plainSymbol });
   const T = L.typeText;
   // Farbindikator (Punkt vor der Typzeile, z. B. Rückseiten von DFCs) – Card Conjurer m15/ciPips
   const ciShift = face.color_indicator && L.style !== 'retro' ? await drawColorIndicator(ctx, face.color_indicator, T) : 0;

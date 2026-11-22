@@ -23,8 +23,10 @@ export const LAYOUTS = {
     ptPlate: { x: 1167, y: 1875, w: 250, h: 100 },
     nameText: { x: 125, right: 1383, baseline: 185, cap: 55, family: 'CMTitle' },
     typeText: { x: 124, right: 1383, baseline: 1263, cap: 49, family: 'CMTitle' },
-    cost: { d: 60, gap: 4, right: 1383, cy: 156, shadow: { dx: -3, dy: 4 } },
-    setSym: { right: 1389, cy: 1241, h: 86, maxW: 180 },
+    // Manakosten und Set-Symbol an 33 Scans nachgemessen (Kreis Ø 72 px, Abstand 4 px, rechte Kante 1387;
+    // Set-Symbol inkl. Kontur 88 px hoch, rechte Kante 1383)
+    cost: { d: 72, gap: 4, right: 1387, cy: 154, shadow: { dx: -3, dy: 4 } },
+    setSym: { right: 1380, cy: 1243, h: 82, maxW: 170, outline: 3 },
     pt: { cap: 49, family: 'CMTitle', baselineOffset: 32 },
     rules: { maxCap: 48, minCap: 16 },
     info: { y1: 1990, y2: 2031, x: 100, right: 1400, cap: 22 },
@@ -47,8 +49,9 @@ export const LAYOUTS = {
     ptPlate: { x: 1114, y: 1876, w: 275, h: 94 },
     nameText: { x: 133, right: 1370, baseline: 197, cap: 56, family: 'CMMatrix' },
     typeText: { x: 133, right: 1370, baseline: 1265, cap: 50, family: 'CMMatrix' },
-    cost: { d: 58, gap: 4, right: 1370, cy: 170, shadow: { dx: -3, dy: 3 } },
-    setSym: { right: 1386, cy: 1240, h: 78, maxW: 150 },
+    // an 22 Scans (M10–THS) nachgemessen: Kreis Ø 63 px, deutlicher Schatten unten links
+    cost: { d: 63, gap: 6, right: 1371, cy: 173, shadow: { dx: -4, dy: 6 } },
+    setSym: { right: 1386, cy: 1241, h: 80, maxW: 160 },
     pt: { cap: 48, family: 'CMMatrix', baselineOffset: 28 },
     rules: { maxCap: 50, minCap: 16 },
     metrics: { lineHeight: 1.46, flavorGap: 0.66, flavorBar: null },

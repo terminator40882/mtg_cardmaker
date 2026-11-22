@@ -25,7 +25,7 @@ export const METRICS = {
   paraGap: 0.62, // zusätzlicher Abstand zwischen Fähigkeiten
   flavorGap: 1.26, // zusätzlicher Abstand vor dem Flavortext
   flavorBar: 1.12, // Position der Trennlinie unter der letzten Regelzeile
-  symSize: 1.17, // Durchmesser Mana-Symbol im Text
+  symSize: 1.1, // Durchmesser Mana-Symbol im Text (an Scans nachgemessen)
   symDrop: 0.1, // Symbol ragt etwas unter die Grundlinie
   symGap: 0.08,
   descent: 0.32,

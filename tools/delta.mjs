@@ -1,6 +1,6 @@
 // Misst das Delta zwischen Nachbau und Original-Scan (Scryfall-PNG).
 //
-//   node tools/delta.mjs [--url http://localhost:8080] [--out delta-out] <karte> ...
+//   node tools/delta.mjs [--url http://localhost:8080] [--out delta-out] [--source cc|code] <karte> ...
 //
 // <karte> ist eine Scryfall-ID oder "set/nummer" (z. B. "m19/154"); Suffix ":1" wählt
 // die Rückseite. Pro Karte entsteht <out>/<set>-<nr>.png (Nachbau | Original | Differenz)
@@ -17,12 +17,13 @@ try { playwright = require('playwright'); } catch {
 }
 
 const args = process.argv.slice(2);
-const opt = { url: 'http://localhost:8080', out: 'delta-out', json: false };
+const opt = { url: 'http://localhost:8080', out: 'delta-out', json: false, source: null };
 const cards = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--url') opt.url = args[++i];
   else if (args[i] === '--out') opt.out = args[++i];
   else if (args[i] === '--json') opt.json = true;
+  else if (args[i] === '--source') opt.source = args[++i];
   else cards.push(args[i]);
 }
 if (!cards.length) {
@@ -58,6 +59,11 @@ for (const spec of cards) {
     const { id, face } = await resolve(spec);
     await page.goto(`${opt.url}/?id=${id}`);
     await page.waitForFunction((cid) => (document.body.dataset.rendered || '').startsWith(cid), id, { timeout: 60000 });
+    if (opt.source) {
+      const before = await page.evaluate(() => document.body.dataset.rendered);
+      await page.selectOption('#opt-source', opt.source);
+      await page.waitForFunction((b) => document.body.dataset.rendered !== b, before, { timeout: 60000 });
+    }
     if (face) {
       await page.selectOption('#opt-face', String(face));
       await page.waitForFunction((cid) => (document.body.dataset.rendered || '').startsWith(`${cid}:1:`), id, { timeout: 60000 });

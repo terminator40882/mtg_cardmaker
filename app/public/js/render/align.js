@@ -106,3 +106,70 @@ function range(a, b, st) {
   for (let v = a; v <= b + 1e-9; v += st) out.push(Math.round(v * 10000) / 10000);
   return out;
 }
+
+// ---------- Regeltext-Größe am Scan bestimmen ----------
+
+const textCache = new Map();
+
+/** Dunkle Pixel (Schrift) in einem Kartenausschnitt als 0/1-Raster. */
+function inkMask(src, box, f, W, H, threshold = 110) {
+  const w = Math.max(1, Math.round(box.w * f)); const h = Math.max(1, Math.round(box.h * f));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.imageSmoothingQuality = 'high';
+  const sw = src.width || src.naturalWidth; const sh = src.height || src.naturalHeight;
+  x.drawImage(src, box.x * sw / W, box.y * sh / H, box.w * sw / W, box.h * sh / H, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data;
+  const out = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const a = d[i * 4 + 3];
+    const l = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+    out[i] = a > 128 && l < threshold ? 1 : 0;
+  }
+  return { out, w, h };
+}
+
+/** Vergleicht zwei Tintenraster blockweise (Dichte je b×b-Block), robust gegen kleine Versätze. */
+function densityDiff(a, r, b) {
+  const w = Math.floor(Math.min(a.w, r.w) / b); const h = Math.floor(Math.min(a.h, r.h) / b);
+  let err = 0;
+  for (let by = 0; by < h; by++) {
+    for (let bx = 0; bx < w; bx++) {
+      let sa = 0; let sr = 0;
+      for (let y = by * b; y < by * b + b; y++) {
+        for (let x = bx * b; x < bx * b + b; x++) { sa += a.out[y * a.w + x]; sr += r.out[y * r.w + x]; }
+      }
+      err += Math.abs(sa - sr);
+    }
+  }
+  return err;
+}
+
+/**
+ * Wählt aus caps die Versalhöhe, deren Satz (draw(ctx, cap) zeichnet nur den Text in
+ * Kartenkoordinaten) am besten mit der Schrift im Scan übereinstimmt.
+ */
+export function fitCapToScan(scan, box, W, H, caps, draw, key) {
+  if (!scan || !caps.length) return null;
+  if (key && textCache.has(key)) return textCache.get(key);
+  const f = 0.5;
+  const ref = inkMask(scan, box, f, W, H);
+  const c = document.createElement('canvas');
+  c.width = Math.round(W * f); c.height = Math.round(H * f);
+  const x = c.getContext('2d', { willReadFrequently: true });
+  let best = null;
+  for (const cap of caps) {
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.clearRect(0, 0, c.width, c.height);
+    x.setTransform(f, 0, 0, f, 0, 0);
+    if (!draw(x, cap)) continue;  // cap kann auch ein Objekt {cap, k} sein
+    const m = inkMask(c, box, f, W, H);
+    const err = densityDiff(m, ref, 4);
+    if (!best || err < best.err) best = { cap, err };
+    if (globalThis.__fitDebug) console.log('fit', JSON.stringify(cap), err);
+  }
+  const res = best ? best.cap : null;
+  if (key) textCache.set(key, res);
+  return res;
+}

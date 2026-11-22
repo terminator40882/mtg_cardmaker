@@ -22,7 +22,7 @@ export const LAYOUTS = {
     nameText: { x: 130, right: 1383, baseline: 181, cap: 55, family: 'CMTitle' },
     typeText: { x: 130, right: 1383, baseline: 1263, cap: 49, family: 'CMTitle' },
     cost: { d: 60, gap: 4, right: 1383, cy: 156, shadow: { dx: -3, dy: 4 } },
-    setSym: { right: 1384, cy: 1241, h: 74, maxW: 150 },
+    setSym: { right: 1389, cy: 1241, h: 86, maxW: 180 },
     pt: { cap: 49, family: 'CMTitle', baselineOffset: 32 },
     rules: { maxCap: 48, minCap: 16 },
     info: { y1: 1990, y2: 2031, x: 100, right: 1400, cap: 22 },

@@ -3,7 +3,7 @@ import { LAYOUTS, layoutForFrame, W, H } from './layouts.js';
 import { frameColors, BORDER_COLORS, VEHICLE_PT } from './palettes.js';
 import { drawFrameLayer, drawHolo, drawBrush, roundRect } from './frames.js';
 import { parseRules, parseFlavor, symbolsIn, smartQuotes } from './textparse.js';
-import { fitText, drawText, drawSymbol, drawFittedLine, sizeForCap } from './textlayout.js';
+import { fitText, drawText, drawSymbol, drawFittedLine, sizeForCap, METRICS } from './textlayout.js';
 import { drawSetSymbol } from './setsymbol.js';
 import { loadImage, loadSymbols, ensureFonts } from './assets.js';
 import { luminance, mix } from './textures.js';
@@ -11,9 +11,9 @@ import { drawSagaText, drawClassText } from './columns.js';
 import { drawAdventure } from './adventure.js';
 import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT } from './dfc.js';
 import { renderLandscape } from './landscape.js';
-import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield } from './planeswalker.js';
-import { ccStatus, ccLayers, loadLayers, drawLayers, ccArtBounds } from './cc.js';
-import { alignArt } from './align.js';
+import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield, setPwIcons } from './planeswalker.js';
+import { ccStatus, ccLayers, loadLayers, drawLayers, ccArtBounds, drawWatermark, ccPwIcons } from './cc.js';
+import { alignArt, fitCapToScan } from './align.js';
 
 export { W, H };
 
@@ -373,6 +373,7 @@ export async function renderCard(canvas, model, deps) {
     ensureFonts(),
   ]);
   model.frameSource = cc ? 'cc' : 'code';
+  setPwIcons(cc && L.kind === 'pw' ? await ccPwIcons(L.typePlate.y < 1100) : null);
 
   canvas.width = Math.round(W * scale);
   canvas.height = Math.round(H * scale);
@@ -401,8 +402,9 @@ export async function renderCard(canvas, model, deps) {
     model.artAligned = !!rect;
     const adj = rect ? { ...opts.art, rect } : opts.art;
     if (model.palettes[0].variant === 'devoid') drawArt(ctx, art, { x: 0, y: 0, w: W, h: H }, adj, box);
-    else drawArt(ctx, art, box, adj, box);
+    else drawArt(ctx, art, L.kind === 'pw' ? L.art : box, adj, box);
     drawLayers(ctx, cc, W, H, scale, { borderColor: model.borderKey !== 'black' ? model.borderColor : null });
+    if (opts.watermark !== false) await drawWatermark(ctx, model, L, scale);
   } else {
     if (model.palettes[0].variant === 'devoid' && L.style === 'm15') {
       // Devoid: Artwork scheint durch den ganzen Rahmen
@@ -462,14 +464,48 @@ export async function renderCard(canvas, model, deps) {
     // Platz für die kleine Rückseiten-P/T rechts über der P/T-Box
     ptZone = { x: L.ptPlate.x + L.ptPlate.w - 120, y: L.ptPlate.y - 80, tolerance: 60 };
   }
+  /** Zeichnet Saga/Class/Adventure-Text; Schriftgröße per Vergleich mit dem Scan (wie beim Regeltext). */
+  const fitColumnsToScan = (draw, tag) => {
+    if (opts.fontCap || !opts.alignArt || !scan) return draw(ctx, model);
+    const tmp = document.createElement('canvas');
+    tmp.width = W / 2; tmp.height = H / 2;
+    const tx = tmp.getContext('2d');
+    tx.scale(0.5, 0.5);
+    const auto = draw(tx, model);
+    if (!auto) return draw(ctx, model);
+    const caps = [];
+    for (let c = auto * 1.2; c >= auto * 0.8; c -= 0.5) caps.push({ cap: c });
+    const best = fitCapToScan(scan, L.box, W, H, caps, (x, c) => {
+      draw(x, { ...model, opts: { ...opts, fontCap: c.cap } });
+      return true;
+    }, `${opts.scanUrl}|${tag}|${model.faceIdx}|${model.face.oracle_text}`);
+    return draw(ctx, best ? { ...model, opts: { ...opts, fontCap: best.cap } } : model);
+  };
   if (L.kind === 'adventure') {
-    model.textCap = drawAdventure(ctx, model, L, model.palettes[0], symbols, keywords, ptZone);
+    model.textCap = fitColumnsToScan((x, m) => drawAdventure(x, m, L, m.palettes[0], symbols, keywords, ptZone), 'adv');
   } else if (L.kind === 'saga') {
-    model.textCap = drawSagaText(ctx, model, L, model.palettes[0], symbols, keywords);
+    model.textCap = fitColumnsToScan((x, m) => drawSagaText(x, m, L, m.palettes[0], symbols, keywords), 'saga');
   } else if (L.kind === 'class') {
-    model.textCap = drawClassText(ctx, model, L, model.palettes[0], symbols, keywords);
+    model.textCap = fitColumnsToScan((x, m) => drawClassText(x, m, L, m.palettes[0], symbols, keywords), 'class');
   } else if (L.kind === 'pw') {
-    const pw = layoutPlaneswalker(ctx, rulesParas, L, { fixedCap: opts.fontCap || null });
+    let pwCap = opts.fontCap || null;
+    if (!pwCap && opts.alignArt && scan) {
+      // Größe des Fähigkeitstexts wie im Original (Vergleich mit dem Scan)
+      const auto = layoutPlaneswalker(ctx, rulesParas, L, {});
+      if (auto) {
+        const caps = [];
+        for (let c = auto.cap * 1.2; c >= auto.cap * 0.8; c -= 0.5) caps.push({ cap: c });
+        const box = { x: L.text.x, y: L.pwBox.y, w: L.text.w, h: L.pwBox.h };
+        const best = fitCapToScan(scan, box, W, H, caps, (x, c) => {
+          const lay = layoutPlaneswalker(x, rulesParas, L, { fixedCap: c.cap });
+          if (!lay) return false;
+          for (const r of lay.rows) drawText(x, r.lay, symbols);
+          return true;
+        }, `${opts.scanUrl}|pw|${model.faceIdx}|${model.face.oracle_text}`);
+        if (best) pwCap = best.cap;
+      }
+    }
+    const pw = layoutPlaneswalker(ctx, rulesParas, L, { fixedCap: pwCap });
     if (pw) {
       drawPlaneswalkerText(ctx, pw, L, model.palettes[0], symbols);
       model.textCap = pw.cap;
@@ -478,14 +514,34 @@ export async function renderCard(canvas, model, deps) {
     const d = Math.min(L.text.h * 0.6, 330);
     drawSymbol(ctx, symbols, basicSym, L.text.x + L.text.w / 2 - d / 2, L.text.y + L.text.h / 2 - d / 2, d);
   } else if (paras.length) {
-    const lay = fitText(ctx, paras, textBox, {
+    const textOpts = {
       maxCap: flags.planeswalker ? L.rules.maxCap * 0.9 : L.rules.maxCap,
       minCap: L.rules.minCap,
       fixedCap: opts.fontCap || null,
       exclude: ptZone,
       metrics: L.metrics,
       centerShort: L.rules.centerShort,
-    });
+    };
+    if (!opts.fontCap && opts.alignArt && scan) {
+      // Schriftgröße wie im Original: Kandidaten bis zur automatisch gewählten Größe am Scan vergleichen
+      const auto = fitText(ctx, paras, textBox, textOpts).cap;
+      const baseM = { ...METRICS, ...(L.metrics || {}) };
+      const withK = (k) => ({ ...(L.metrics || {}), lineHeight: baseM.lineHeight * k, paraGap: baseM.paraGap * k, flavorGap: baseM.flavorGap * k });
+      const draw = (x, c) => {
+        drawText(x, fitText(x, paras, textBox, { ...textOpts, fixedCap: c.cap, metrics: withK(c.k) }), symbols, { flavorBar: false });
+        return true;
+      };
+      const key = `${opts.scanUrl}|${model.faceIdx}|${L.style}${L.variant || ''}|${opts.showFlavor}|${opts.showReminder}|${model.face.oracle_text}`;
+      // 1) Versalhöhe bei Standard-Zeilenabstand, 2) Zeilenabstand (Durchschuss) um die beste Größe herum
+      const capsA = [];
+      for (let c = L.rules.maxCap; c >= Math.max(L.rules.minCap, auto * 0.7); c -= 0.5) capsA.push({ cap: c, k: 1 });
+      const a = fitCapToScan(scan, textBox, W, H, capsA, draw, `${key}|a`);
+      const capsB = [];
+      if (a) for (let c = a.cap + 1.5; c >= a.cap - 1.5; c -= 0.5) for (const k of [0.86, 0.9, 0.94, 0.97, 1, 1.03]) capsB.push({ cap: c, k });
+      const cap = a && fitCapToScan(scan, textBox, W, H, capsB, draw, `${key}|b`);
+      if (cap) { textOpts.fixedCap = cap.cap; textOpts.metrics = withK(cap.k); }
+    }
+    const lay = fitText(ctx, paras, textBox, textOpts);
     if (flags.planeswalker && !retroLayout) drawPlaneswalkerRows(ctx, lay, L);
     drawText(ctx, lay, symbols, { flavorBar: opts.flavorBar !== false });
     model.textCap = lay.cap;

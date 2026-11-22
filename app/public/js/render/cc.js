@@ -15,6 +15,7 @@ export function ccStatus() {
 }
 
 const IMG = '/cc/img/frames';
+const ART_M15 = { x: 0.0767, y: 0.1129, width: 0.8476, height: 0.4429 };
 const RIGHT_HALF = `${IMG}/maskRightHalf.png`;
 const WUBRG = ['W', 'U', 'B', 'R', 'G'];
 
@@ -250,6 +251,113 @@ function oldStack(p, card, colors, type, border) {
   return out;
 }
 
+
+// ---------- Spezial-Layouts (Frame-Packs von Card Conjurer) ----------
+// Jeder Pack: Rahmenbild je Farbbuchstabe + Masken je Rahmenbereich.
+const P = `${IMG}`;
+const PACKS = {
+  pw: {
+    file: (l) => `${P}/planeswalker/regular/planeswalkerFrame${l}.png`, letters: 'WUBRGMA',
+    masks: { Pinline: `${P}/planeswalker/regular/planeswalkerMaskPinline.png`, Title: `${P}/planeswalker/regular/planeswalkerMaskTitle.png`, Type: `${P}/planeswalker/regular/planeswalkerMaskType.png` },
+    art: { x: 0.068, y: 0.101, width: 0.864, height: 0.8143 },
+  },
+  pw4: {
+    file: (l) => `${P}/planeswalker/tall/planeswalkerTall${l}.png`, letters: 'WUBRGMAL',
+    masks: { Pinline: `${P}/planeswalker/tall/planeswalkerTallMaskPinline.png`, Title: `${P}/planeswalker/regular/planeswalkerMaskTitle.png`, Type: `${P}/planeswalker/tall/planeswalkerTallMaskType.png` },
+    art: { x: 0.068, y: 0.101, width: 0.864, height: 0.8143 },
+  },
+  saga: {
+    file: (l) => (l === 'L' ? `${P}/saga/regular/l.png` : `${P}/saga/regular/sagaFrame${l}.png`), letters: 'WUBRGMAL',
+    masks: { Pinline: `${P}/saga/sagaMaskPinline.png`, Title: `${P}/m15/regular/m15MaskTitle.png`, Type: `${P}/saga/sagaMaskType.png`, Rules: `${P}/saga/sagaMaskText.png`, RulesRight: `${P}/saga/sagaMaskTextRight.png` },
+    art: { x: 0.5, y: 0.1124, width: 0.4247, height: 0.7253 },
+    stamp: { src: `${P}/saga/stamp.png`, bounds: { x: 0.438, y: 0.912, width: 0.124, height: 0.0372 } },
+  },
+  class: {
+    file: (l) => `${P}/class/${lc(l)}.png`, letters: 'WUBRGMAL',
+    masks: { Pinline: `${P}/class/pinline.svg`, Title: `${P}/m15/regular/m15MaskTitle.png`, Type: `${P}/saga/sagaMaskType.png`, Rules: `${P}/class/text.svg`, RulesRight: `${P}/class/textRight.png` },
+    art: { x: 0.0753, y: 0.1124, width: 0.4247, height: 0.7253 },
+  },
+  adventure: {
+    file: (l) => `${P}/adventure/regular/${lc(l)}.png`, letters: 'WUBRGMAL',
+    masks: { Pinline: `${P}/adventure/regular/pinline.svg`, Title: `${P}/m15/regular/m15MaskTitle.png`, Type: `${P}/m15/regular/m15MaskType.png`, Rules: `${P}/adventure/regular/book.svg` },
+    art: ART_M15, pt: true,
+  },
+  transformFront: {
+    file: (l) => `${P}/m15/transform/regular/front${l}.png`, letters: 'WUBRGMAL',
+    masks: { Pinline: `${P}/m15/transform/regular/maskPinlineFront.png`, Title: `${P}/m15/transform/regular/maskTitle.png`, Type: `${P}/m15/regular/m15MaskType.png`, Rules: `${P}/m15/transform/regular/maskRulesFront.png` },
+    art: ART_M15, pt: true, crown: true,
+  },
+  transformBack: {
+    file: (l) => `${P}/m15/transform/regular/back${l}.png`, letters: 'WUBRGMAL',
+    masks: { Pinline: `${P}/m15/transform/regular/maskPinlineBack.png`, Title: `${P}/m15/transform/regular/maskTitle.png`, Type: `${P}/m15/regular/m15MaskType.png`, Rules: `${P}/m15/regular/m15MaskRules.png` },
+    art: ART_M15, pt: (l) => `${P}/m15/transform/regular/pt${l === 'C' || l === 'L' ? 'A' : l}.png`, crown: true,
+  },
+  modalFront: {
+    file: (l) => `${P}/modal/regular/${lc(l)}.png`, letters: 'WUBRGMAL',
+    masks: { Pinline: `${P}/modal/regular/pinline.svg`, Title: `${P}/modal/regular/title.svg`, Type: `${P}/m15/regular/m15MaskType.png`, Rules: `${P}/modal/regular/textbox.svg` },
+    art: ART_M15, pt: true, crown: true,
+  },
+  modalBack: {
+    file: (l) => `${P}/modal/regular/${lc(l)}b.png`, letters: 'WUBRGMAL',
+    masks: { Pinline: `${P}/modal/regular/pinline.svg`, Title: `${P}/modal/regular/title.svg`, Type: `${P}/m15/regular/m15MaskType.png`, Rules: `${P}/modal/regular/textbox.svg` },
+    art: ART_M15, pt: true, crown: true,
+  },
+};
+
+/** Buchstaben auf die im Pack vorhandenen Dateien abbilden */
+function packLetter(pack, l) {
+  if (!l) return null;
+  l = l.toUpperCase();
+  if (l.length > 1) l = pack.letters.includes('L') ? 'L' : l[0];
+  if (l === 'V') l = 'A';
+  if (!pack.letters.includes(l)) l = l === 'C' || l === 'L' ? (pack.letters.includes('L') ? 'L' : 'A') : 'A';
+  return l;
+}
+
+function packStack(pack, p, { legendary, stamp }) {
+  const F = (l, mask, right = false) => {
+    const m = pack.masks[mask];
+    return { src: pack.file(packLetter(pack, l)), masks: m ? [m, ...(right ? [RIGHT_HALF] : [])] : (right ? [RIGHT_HALF] : []) };
+  };
+  const out = [];
+  if (legendary && pack.crown) {
+    if (p.pinlineRight) out.push(m15Layer(p.pinlineRight, 'Crown', true, 'regular'));
+    out.push(m15Layer(p.pinline, 'Crown', false, 'regular'));
+    out.push(m15Layer(p.pinline, 'Crown Border Cover', false, 'regular'));
+  }
+  if (pack.pt && p.pt) {
+    out.push(typeof pack.pt === 'function'
+      ? { src: pack.pt(packLetter(pack, p.pt)), masks: [], bounds: { x: 0.7573, y: 0.8848, width: 0.188, height: 0.0733 } }
+      : m15Layer(p.pt, 'PT', false, 'regular'));
+  }
+  if (stamp) out.push(pack.stamp ? { ...pack.stamp, masks: [] } : m15Layer(p.frame, 'Stamp', false, 'regular'));
+  if (p.pinlineRight) out.push(F(p.pinlineRight, 'Pinline', true));
+  out.push(F(p.pinline, 'Pinline'));
+  out.push(F(p.typeTitle, 'Type'));
+  out.push(F(p.typeTitle, 'Title'));
+  if (pack.masks.Rules) {
+    if (p.rulesRight) out.push(pack.masks.RulesRight ? { src: pack.file(packLetter(pack, p.rulesRight)), masks: [pack.masks.RulesRight] } : F(p.rulesRight, 'Rules', true));
+    out.push(F(p.rules, 'Rules'));
+  }
+  if (p.frameRight) out.push({ src: pack.file(packLetter(pack, p.frameRight)), masks: [RIGHT_HALF] });
+  // ganzes Rahmenbild (Rahmen + Rand) als unterste Ebene
+  out.push({ src: pack.file(packLetter(pack, p.frame)), masks: [] });
+  return out;
+}
+
+function packFor(model) {
+  const { layout: L, card, faceIdx } = model;
+  if (L.style !== 'm15') return null;
+  if (L.kind === 'pw') return L.typePlate.y < 1100 ? PACKS.pw4 : PACKS.pw; // pw4 = 4 Fähigkeiten (hoher Rahmen)
+  if (L.kind === 'saga') return PACKS.saga;
+  if (L.kind === 'class') return PACKS.class;
+  if (L.kind === 'adventure') return PACKS.adventure;
+  if (L.kind) return null; // Split/Battle: Code-Renderer
+  if (card.layout === 'transform') return faceIdx === 1 ? PACKS.transformBack : PACKS.transformFront;
+  if (card.layout === 'modal_dfc') return faceIdx === 1 ? PACKS.modalBack : PACKS.modalFront;
+  return null;
+}
+
 /**
  * Liefert die Ebenen (oben -> unten) für das Modell oder null, wenn der Stil
  * (noch) nicht aus Card-Conjurer-Assets gebaut werden kann.
@@ -260,7 +368,11 @@ export function ccLayers(model) {
   const colors = frameColorsFor(card, face);
   const power = face.power ?? null;
   const fx = card.frame_effects || [];
-  if (L.kind && L.kind !== 'normal') return null; // Spezial-Layouts zeichnet weiterhin der Code-Renderer
+  const pack = packFor(model);
+  if (pack) {
+    return packStack(pack, frameProperties(colors, face.mana_cost, type, power), { legendary: flags.legendary, stamp: flags.holo });
+  }
+  if (L.kind && L.kind !== 'normal') return null; // Split/Battle zeichnet weiterhin der Code-Renderer
   if (L.style === 'm15') {
     const p = frameProperties(colors, face.mana_cost, type, power);
     let style = 'regular';
@@ -290,6 +402,13 @@ const ART_BOUNDS = {
 
 /** Artwork-Box in Kartenkoordinaten (leicht vergrößert, damit keine Lücken entstehen) */
 export function ccArtBounds(model, L) {
+  const pack = packFor(model);
+  if (pack) {
+    const b = pack.art;
+    // Planeswalker: Artwork-Ausschnitt reicht nur bis zur Typzeile (darunter gespiegelt)
+    const h = L.kind === 'pw' ? (L.artFit.y + L.artFit.h) / L.H - b.y : b.height;
+    return { x: b.x * L.W - 2, y: b.y * L.H - 2, w: b.width * L.W + 4, h: h * L.H + 4 };
+  }
   let key = L.style === 'm15' ? 'm15' : L.style === 'm2003' ? 'm2003' : L.variant === '97' ? 'retro97' : ABU_SETS.has(model.card.set) ? 'abu' : 'fourth';
   const b = ART_BOUNDS[key];
   const pad = 2;
@@ -362,4 +481,76 @@ function recolorBorder(fx, cw, ch, color, layers) {
   x.fillStyle = color;
   x.fillRect(0, 0, cw, ch);
   fx.drawImage(c, 0, 0);
+}
+
+// ---------- Wasserzeichen (Assets/img/watermarks, Card Conjurer) ----------
+
+const WATERMARKS = [
+  'ability-foretell', 'clan-abzan', 'clan-atarka', 'clan-dromoka', 'clan-jeskai', 'clan-kolaghan', 'clan-mardu',
+  'clan-ojutai', 'clan-silumgar', 'clan-sultai', 'clan-temur', 'desparked-planeswalker', 'faction-agents-of-sneak',
+  'faction-crossbreed-labs', 'faction-goblin-explosioneers', 'faction-league-of-dastardly-doom', 'faction-order-of-the-widget',
+  'family-brokers', 'family-cabaretti', 'family-maestros', 'family-obscura', 'family-riveteers', 'guild-azorius',
+  'guild-boros', 'guild-dimir', 'guild-golgari', 'guild-gruul', 'guild-izzet', 'guild-orzhov', 'guild-rakdos',
+  'guild-selesnya', 'guild-simic', 'mirran', 'misc-dci', 'phyrexian', 'planeswalker', 'polis-akros', 'polis-meletis',
+  'polis-setessa', 'school-lorehold', 'school-prismari', 'school-quandrix', 'school-silverquill', 'school-witherbloom',
+];
+const WM_INDEX = new Map(WATERMARKS.map((f) => [f.replace(/^(ability|clan|faction|family|guild|misc|polis|school)-/, '').replace(/-/g, ''), f]));
+WM_INDEX.set('foretell', 'ability-foretell');
+
+// Tönung je Farbe (wie die Farbwahl "Wasserzeichen links/rechts" in Card Conjurer)
+const WM_TINT = { W: '#b89c5f', U: '#2a6cb0', B: '#4b4442', R: '#c43c22', G: '#2c7a43', M: '#b8913a', A: '#6f7f8c', L: '#80664a', C: '#8d8d8d' };
+
+export function watermarkUrl(name) {
+  const f = WM_INDEX.get(String(name || '').toLowerCase().replace(/[^a-z]/g, ''));
+  return f ? `/cc/img/watermarks/${f}.svg` : null;
+}
+
+/** Zeichnet das Wasserzeichen ins Textfeld (Deckkraft 40 %, zweifarbig geteilt wie im Original). */
+export async function drawWatermark(ctx, model, L, scale) {
+  const url = watermarkUrl(model.card.watermark);
+  if (!url || !L.box) return;
+  const img = await loadImage(url).catch(() => null);
+  if (!img) return;
+  const props = frameProperties(frameColorsFor(model.card, model.face), model.face.mana_cost, model.face.type_line || '', null);
+  const tint = (l) => WM_TINT[(l || 'C').replace(/L$/, '') || 'L'] || WM_TINT[l[0]] || WM_TINT.C;
+  const left = tint(props.rules);
+  const right = props.rulesRight ? tint(props.rulesRight) : null;
+  // Bereich: Card Conjurer card.watermarkBounds (Mitte + Größe), sonst Textfeld
+  const b = L.style === 'm15' ? { cx: 0.5 * L.W, cy: 0.7762 * L.H, w: 0.75 * L.W, h: 0.2305 * L.H }
+    : L.style === 'm2003' ? { cx: 0.5 * L.W, cy: 0.7605 * L.H, w: 0.75 * L.W, h: 0.2305 * L.H }
+      : { cx: L.box.x + L.box.w / 2, cy: L.box.y + L.box.h / 2, w: L.box.w * 0.75, h: L.box.h * 0.85 };
+  const ar = (img.naturalWidth || img.width) / (img.naturalHeight || img.height);
+  let w = b.w; let h = w / ar;
+  if (h > b.h) { h = b.h; w = h * ar; }
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(w * scale); c.height = Math.ceil(h * scale);
+  const x = c.getContext('2d');
+  x.drawImage(img, 0, 0, c.width, c.height);
+  x.globalCompositeOperation = 'source-in';
+  x.fillStyle = left;
+  x.fillRect(0, 0, c.width, c.height);
+  if (right) {
+    // rechte Kartenhälfte in der zweiten Farbe
+    const split = (L.W / 2 - (b.cx - w / 2)) * scale;
+    x.globalCompositeOperation = 'source-atop';
+    x.fillStyle = right;
+    x.fillRect(split, 0, c.width - split, c.height);
+  }
+  ctx.save();
+  ctx.globalAlpha = 0.4;
+  ctx.drawImage(c, b.cx - w / 2, b.cy - h / 2, w, h);
+  ctx.restore();
+}
+
+/** Loyalitäts-Symbole der Planeswalker (Card Conjurer) */
+export async function ccPwIcons(tall) {
+  try {
+    const [plus, minus, neutral] = await Promise.all(['Plus', 'Minus', 'Neutral'].map((n) => loadImage(`${IMG}/planeswalker/planeswalker${n}.png`)));
+    const [lineOdd, lineEven, textMask] = await Promise.all([
+      loadImage(`${IMG}/planeswalker/abilityLineOdd.png`),
+      loadImage(`${IMG}/planeswalker/abilityLineEven.png`),
+      loadImage(tall ? `${IMG}/planeswalker/tall/planeswalkerTallMaskRules.png` : `${IMG}/planeswalker/text.svg`),
+    ]);
+    return { plus, minus, neutral, lineOdd, lineEven, textMask };
+  } catch { return null; }
 }

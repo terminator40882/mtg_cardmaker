@@ -197,6 +197,13 @@ $('download').addEventListener('click', async () => {
 // Schriftgrößen-Auswahl
 for (let s = 50; s >= 20; s -= 1) $('opt-size').insertAdjacentHTML('beforeend', `<option value="${s}">${s} px Versalhöhe</option>`);
 
+// Hinweis zu den Card-Conjurer-Assets
+fetch('/api/cc').then((r) => r.json()).then((st) => {
+  $('cc-info').textContent = st.available
+    ? 'Rahmengrafiken: Card-Conjurer-Assets aus Assets/.'
+    : `Card-Conjurer-Assets nicht verfügbar (${st.reason}) – Rahmen werden per Code gezeichnet.`;
+}).catch(() => {});
+
 // Hinweis zu Schriften
 api.fontStatus().then((st) => {
   const fallback = Object.entries(st).filter(([, v]) => v.source === 'fallback').map(([k]) => k);

@@ -117,6 +117,7 @@ function currentOptions(scale = 1) {
   return {
     face,
     frame: $('opt-frame').value,
+    frameSource: $('opt-source').value,
     border: $('opt-border').value,
     showFlavor: $('opt-flavor').checked,
     showReminder: $('opt-reminder').checked,
@@ -125,6 +126,8 @@ function currentOptions(scale = 1) {
     footer: $('opt-footer').value.trim(),
     art: { zoom: Number($('art-zoom').value), dx: Number($('art-dx').value), dy: Number($('art-dy').value) },
     artUrl: api.artUrl(state.card.id, hasFaceArt ? face : 0),
+    alignArt: $('opt-align').checked,
+    scanUrl: faceImage(state.card, face).png ? `/asset?u=${encodeURIComponent(faceImage(state.card, face).png)}` : null,
     scale,
   };
 }
@@ -139,12 +142,14 @@ async function deps() {
   return { symbolMap, keywords };
 }
 
+let renderCount = 0;
 function scheduleRender() {
   if (state.rendering) { state.pending = true; return; }
   state.rendering = (async () => {
     try {
       const model = buildModel(state.card, state.set, currentOptions(1));
       await renderCard($('card'), model, await deps());
+      document.body.dataset.rendered = `${state.card.id}:${model.opts.face}:${++renderCount}`;
       $('status').textContent = model.textCap ? `Regeltext: Versalhöhe ${model.textCap.toFixed(2)} px${$('opt-size').value ? '' : ' (automatisch angepasst)'}` : '';
     } catch (err) {
       console.error(err);
@@ -157,7 +162,7 @@ function scheduleRender() {
   });
 }
 
-for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-reminder', 'opt-size', 'opt-frame', 'opt-border', 'opt-footer', 'art-zoom', 'art-dx', 'art-dy']) {
+for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-reminder', 'opt-size', 'opt-source', 'opt-frame', 'opt-border', 'opt-footer', 'opt-align', 'art-zoom', 'art-dx', 'art-dy']) {
   $(id).addEventListener('input', scheduleRender);
 }
 $('opt-face').addEventListener('input', () => { updateOriginal(); scheduleRender(); });

@@ -167,6 +167,12 @@ export async function getCard(id) {
   return apiGet(`/cards/${id}`, 7 * DAY);
 }
 
+/** Karte über Set-Code und Sammlernummer (für Werkzeuge wie tools/delta.mjs) */
+export async function getCardBySet(set, cn) {
+  if (!/^[a-z0-9]{2,6}$/i.test(set) || !/^[\w\-★†]{1,10}$/u.test(cn)) throw new ScryfallError(400, 'Ungültige Angabe');
+  return apiGet(`/cards/${set.toLowerCase()}/${encodeURIComponent(cn)}`);
+}
+
 export async function getSet(code) {
   if (!/^[a-z0-9]{2,8}$/i.test(code)) throw new ScryfallError(400, 'Ungültiger Set-Code');
   const set = await apiGet(`/sets/${code.toLowerCase()}`, 7 * DAY);

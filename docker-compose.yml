@@ -7,11 +7,14 @@ services:
     environment:
       # Scryfall verlangt einen aussagekräftigen User-Agent
       SCRYFALL_USER_AGENT: "MTGCardmaker/0.1 (self-hosted)"
+      CC_ASSETS_DIR: /assets
     volumes:
       # Cache für Scryfall-Daten, Artworks und Symbole
       - cardmaker-data:/data
       # Eigene Schriften (Beleren, MPlantin, ...) hier ablegen – siehe README
       - ./app/fonts:/app/fonts:ro
+      # Card-Conjurer-Rahmen (Git LFS, vorher "git lfs pull") – siehe Assets/SOURCE.md
+      - ./Assets:/assets:ro
     restart: unless-stopped
 
   # Platzhalter für den späteren Upscaling-Schritt (z. B. Real-ESRGAN).

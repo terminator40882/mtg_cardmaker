@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as sf from './scryfall.js';
 import { fontCss, FONTS_DIR, FONTSOURCE_DIR } from './fonts.js';
+import { ccStatus, CC_IMG_DIR } from './ccassets.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(here, '..', 'public');
@@ -30,6 +31,7 @@ app.get('/api/prints', wrap(async (req, res) => {
 }));
 
 app.get('/api/card/:id', wrap(async (req, res) => res.json(await sf.getCard(req.params.id))));
+app.get('/api/card-by/:set/:cn', wrap(async (req, res) => res.json(await sf.getCardBySet(req.params.set, req.params.cn))));
 app.get('/api/set/:code', wrap(async (req, res) => {
   const set = await sf.getSet(req.params.code);
   res.json({ ...set, icon: sf.assetPath(set.icon_svg_uri) });
@@ -60,6 +62,10 @@ app.get('/fonts/fonts.css', wrap(async (req, res) => {
 app.get('/api/fonts', wrap(async (req, res) => res.json((await fontCss()).status)));
 app.use('/fonts/custom', express.static(FONTS_DIR, { fallthrough: false }));
 app.use('/fonts/fallback', express.static(FONTSOURCE_DIR, { fallthrough: false }));
+
+// Card-Conjurer-Rahmengrafiken (Ordner Assets/ im Repo, per Git LFS)
+app.get('/api/cc', wrap(async (req, res) => res.json(await ccStatus())));
+app.use('/cc/img', express.static(CC_IMG_DIR, { fallthrough: false, maxAge: '7d' }));
 
 app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
 

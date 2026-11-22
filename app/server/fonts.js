@@ -18,11 +18,11 @@ const LATIN_EXT = 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02
 // family: Name im Canvas; custom: akzeptierte Dateinamen (klein, nur a-z0-9); fallback: fontsource-Datei
 const ROLES = [
   // scaleX: horizontale Korrektur der Ersatzschrift, per Pixel-Vergleich mit Kartenscans ermittelt
-  { family: 'CMTitle', custom: ['belerenbold', 'beleren2016bold', 'belerenbold2016', 'beleren'], fallback: ['pt-serif', '700-normal'], scaleX: 0.93 },
+  { family: 'CMTitle', custom: ['belerenbold', 'beleren2016bold', 'belerenbold2016', 'belerenb', 'beleren'], fallback: ['pt-serif', '700-normal'], scaleX: 0.93 },
   { family: 'CMRules', custom: ['mplantin', 'mplantinregular', 'plantinmtpro', 'plantinmtproregular'], fallback: ['tinos', '400-normal'], scaleX: 1.115 },
-  { family: 'CMRulesItalic', custom: ['mplantinitalic', 'mplantinit', 'plantinmtproitalic'], fallback: ['tinos', '400-italic'], scaleX: 1.054 },
+  { family: 'CMRulesItalic', custom: ['mplantinitalic', 'mplantinit', 'mplantini', 'plantinmtproitalic'], fallback: ['tinos', '400-italic'], scaleX: 1.054 },
   { family: 'CMInfo', custom: ['gothammedium', 'relaymedium', 'relay'], fallback: ['alegreya-sans', '500-normal'], scaleX: 1 },
-  { family: 'CMArtist', custom: ['belerensmallcaps', 'beleren2016smallcapsbold', 'belerensmallcapsbold'], fallback: ['alegreya-sans', '700-normal'], scaleX: 1 },
+  { family: 'CMArtist', custom: ['belerensmallcaps', 'beleren2016smallcapsbold', 'belerensmallcapsbold', 'belerenbsc'], fallback: ['alegreya-sans', '700-normal'], scaleX: 1 },
   { family: 'CMRetroTitle', custom: ['goudymedieval', 'goudymediaeval'], fallback: ['alegreya', '500-normal'], scaleX: 1 },
   { family: 'CMMatrix', custom: ['matrixbold', 'matrixb', 'matrix'], fallback: ['pt-serif', '700-normal'], scaleX: 0.93 },
 ];

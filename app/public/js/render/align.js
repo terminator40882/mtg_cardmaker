@@ -1,0 +1,108 @@
+// Richtet das Artwork (Scryfall art_crop) am Original-Scan aus: sucht Skalierung und
+// Verschiebung, bei der das Artwork im Bildfenster am besten mit dem Scan übereinstimmt
+// (Summe der absoluten Helligkeitsdifferenzen, grob-zu-fein).
+const cache = new Map();
+
+function lumaGrid(img, w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.imageSmoothingQuality = 'high';
+  x.drawImage(img, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data;
+  const out = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) out[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+  return out;
+}
+
+function sample(grid, gw, gh, x, y) {
+  if (x < 0 || y < 0 || x > gw - 1 || y > gh - 1) return -1;
+  const x0 = Math.floor(x); const y0 = Math.floor(y);
+  const x1 = Math.min(x0 + 1, gw - 1); const y1 = Math.min(y0 + 1, gh - 1);
+  const fx = x - x0; const fy = y - y0;
+  const a = grid[y0 * gw + x0] * (1 - fx) + grid[y0 * gw + x1] * fx;
+  const b = grid[y1 * gw + x0] * (1 - fx) + grid[y1 * gw + x1] * fx;
+  return a * (1 - fy) + b * fy;
+}
+
+/**
+ * art: Artwork-Bild, scan: Original-Scan (ganze Karte), box: Bildfenster in Kartenkoordinaten,
+ * W/H: Kartengröße. Ergebnis: Rechteck {x,y,w,h} in Kartenkoordinaten oder null.
+ */
+export function alignArt(art, scan, box, W, H, key) {
+  if (!art || !scan) return null;
+  if (key && cache.has(key)) return cache.get(key);
+  const res = solve(art, scan, box, W, H);
+  if (key) cache.set(key, res);
+  return res;
+}
+
+function solve(art, scan, box, W, H) {
+  const aw = art.naturalWidth || art.width;
+  const ah = art.naturalHeight || art.height;
+  // Ausgangslage: Artwork füllt das Fenster (cover)
+  const s0 = Math.max(box.w / aw, box.h / ah);
+  const base = { cx: box.x + box.w / 2, cy: box.y + box.h / 2, s: s0 };
+
+  const levels = [
+    { f: 1 / 8, ds: [0.9, 1.16, 0.02], dxy: [-48, 48, 8] },
+    { f: 1 / 4, ds: [-0.02, 0.02, 0.005], dxy: [-8, 8, 2] },
+    { f: 1 / 2, ds: [-0.005, 0.005, 0.0025], dxy: [-2, 2, 1] },
+  ];
+  let best = { ds: 1, dx: 0, dy: 0 };
+  for (let li = 0; li < levels.length; li++) {
+    const { f, ds, dxy } = levels[li];
+    const sw = Math.round(W * f); const sh = Math.round(H * f);
+    const scanG = lumaGrid(scan, sw, sh);
+    // Artwork-Raster in passender Auflösung (Pixel des Rasters = Kartenpixel * f bei s0)
+    const gw = Math.max(8, Math.round(aw * s0 * f)); const gh = Math.max(8, Math.round(ah * s0 * f));
+    const artG = lumaGrid(art, gw, gh);
+    // Stichproben im inneren Fenster (Rand meiden: Rahmenkante, Schatten)
+    const inset = 0.06;
+    const pts = [];
+    const step = li === 0 ? 1 : 2;
+    for (let y = box.y + box.h * inset; y < box.y + box.h * (1 - inset); y += step / f) {
+      for (let x = box.x + box.w * inset; x < box.x + box.w * (1 - inset); x += step / f) {
+        const v = scanG[Math.round(y * f) * sw + Math.round(x * f)];
+        if (v !== undefined) pts.push(x, y, v);
+      }
+    }
+    const center = li === 0 ? { ds: 0, dx: 0, dy: 0 } : best;
+    let bestErr = Infinity;
+    let cand = best;
+    const scales = li === 0 ? range(...ds) : range(...ds).map((d) => center.ds + d);
+    for (const sc of scales) {
+      const s = base.s * sc;
+      const w = aw * s; const h = ah * s;
+      for (const dy of range(...dxy)) {
+        for (const dx of range(...dxy)) {
+          const ox = base.cx - w / 2 + (center.dx || 0) + dx;
+          const oy = base.cy - h / 2 + (center.dy || 0) + dy;
+          // Kartenkoordinate -> Artwork-Raster
+          const k = (gw / w);
+          let err = 0; let n = 0;
+          for (let i = 0; i < pts.length; i += 3) {
+            const v = sample(artG, gw, gh, (pts[i] - ox) * k, (pts[i + 1] - oy) * (gh / h));
+            if (v < 0) { err += 60; n++; continue; }
+            err += Math.abs(v - pts[i + 2]); n++;
+          }
+          err /= n;
+          if (err < bestErr) { bestErr = err; cand = { ds: sc, dx: (center.dx || 0) + dx, dy: (center.dy || 0) + dy }; }
+        }
+      }
+    }
+    best = cand;
+    best.err = bestErr;
+  }
+  // Ausrichtung nur übernehmen, wenn sie eindeutig passt (sonst anderes Artwork / Promo)
+  if (best.err > 40) return null;
+  const s = base.s * best.ds;
+  const w = aw * s; const h = ah * s;
+  return { x: base.cx - w / 2 + best.dx, y: base.cy - h / 2 + best.dy, w, h, err: best.err };
+}
+
+function range(a, b, st) {
+  const out = [];
+  for (let v = a; v <= b + 1e-9; v += st) out.push(Math.round(v * 10000) / 10000);
+  return out;
+}

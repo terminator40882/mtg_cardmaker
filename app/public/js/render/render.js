@@ -12,6 +12,8 @@ import { drawAdventure } from './adventure.js';
 import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT } from './dfc.js';
 import { renderLandscape } from './landscape.js';
 import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield } from './planeswalker.js';
+import { ccStatus, ccLayers, loadLayers, drawLayers, ccArtBounds } from './cc.js';
+import { alignArt } from './align.js';
 
 export { W, H };
 
@@ -73,6 +75,7 @@ export function buildModel(card, set, opts) {
     faceIdx,
     layout: LAYOUTS[layoutName] || LAYOUTS.m15,
     borderColor: BORDER_COLORS[border] || BORDER_COLORS.black,
+    borderKey: BORDER_COLORS[border] ? border : 'black',
     lightBorder: border === 'white' || border === 'silver' || border === 'gold' || border === 'yellow',
     palettes: frameVariant(frameColors(face), card, type),
     flags: {
@@ -108,6 +111,16 @@ function frameVariant(palettes, card, type) {
 
 function placeArt(img, box, adj = {}) {
   const zoom = adj.zoom || 1;
+  if (adj.rect) {
+    // am Scan ausgerichtet; Zoom/Verschiebung wirken zusätzlich
+    const r = adj.rect;
+    return {
+      x: r.x + (r.w - r.w * zoom) / 2 + (adj.dx || 0) * box.w * 0.5,
+      y: r.y + (r.h - r.h * zoom) / 2 + (adj.dy || 0) * box.h * 0.5,
+      w: r.w * zoom,
+      h: r.h * zoom,
+    };
+  }
   const iw = img.naturalWidth || img.width;
   const ih = img.naturalHeight || img.height;
   const sc = Math.max(box.w / iw, box.h / ih) * zoom;
@@ -350,12 +363,16 @@ export async function renderCard(canvas, model, deps) {
   const basicSym = flags.basic && flavorParas.length === 0 ? basicLandSymbol(face) : null;
   if (basicSym) codes.push(basicSym);
 
-  const [art, setIcon, symbols] = await Promise.all([
+  const ccDefs = opts.frameSource !== 'code' && (await ccStatus()).available ? ccLayers(model) : null;
+  const [art, setIcon, symbols, cc, scan] = await Promise.all([
     loadImage(opts.artUrl).catch(() => null),
     loadImage(model.set?.icon).catch(() => null),
     loadSymbols(codes, symbolMap),
+    ccDefs ? loadLayers(ccDefs) : null,
+    opts.alignArt && opts.scanUrl ? loadImage(opts.scanUrl).catch(() => null) : null,
     ensureFonts(),
   ]);
+  model.frameSource = cc ? 'cc' : 'code';
 
   canvas.width = Math.round(W * scale);
   canvas.height = Math.round(H * scale);
@@ -377,18 +394,29 @@ export async function renderCard(canvas, model, deps) {
     return model;
   }
 
-  if (model.palettes[0].variant === 'devoid' && L.style === 'm15') {
-    // Devoid: Artwork scheint durch den ganzen Rahmen
-    ctx.save();
-    ctx.filter = 'blur(3px)';
-    drawArt(ctx, art, L.frame, opts.art, L.artFit || L.art);
-    ctx.restore();
+  if (cc) {
+    // Rahmen aus Card-Conjurer-Grafiken; Artwork liegt darunter im Bildfenster
+    const box = ccArtBounds(model, L);
+    const rect = alignArt(art, scan, box, W, H, `${opts.artUrl}|${opts.scanUrl}|${L.style}${L.variant || ''}`);
+    model.artAligned = !!rect;
+    const adj = rect ? { ...opts.art, rect } : opts.art;
+    if (model.palettes[0].variant === 'devoid') drawArt(ctx, art, { x: 0, y: 0, w: W, h: H }, adj, box);
+    else drawArt(ctx, art, box, adj, box);
+    drawLayers(ctx, cc, W, H, scale, { borderColor: model.borderKey !== 'black' ? model.borderColor : null });
+  } else {
+    if (model.palettes[0].variant === 'devoid' && L.style === 'm15') {
+      // Devoid: Artwork scheint durch den ganzen Rahmen
+      ctx.save();
+      ctx.filter = 'blur(3px)';
+      drawArt(ctx, art, L.frame, opts.art, L.artFit || L.art);
+      ctx.restore();
+    }
+    drawArt(ctx, art, L.art, opts.art, L.artFit || L.art);
+    drawFramesComposite(ctx, L, model.palettes, flags, scale);
   }
-  drawArt(ctx, art, L.art, opts.art, L.artFit || L.art);
-  drawFramesComposite(ctx, L, model.palettes, flags, scale);
 
   // Artwork-Kontur
-  if (L.style === 'm15' && L.kind !== 'pw') {
+  if (!cc && L.style === 'm15' && L.kind !== 'pw') {
     ctx.save();
     ctx.lineWidth = 4;
     ctx.strokeStyle = 'rgba(10,10,10,0.9)';
@@ -480,7 +508,7 @@ export async function renderCard(canvas, model, deps) {
     }
   }
 
-  if (flags.holo) drawHolo(ctx, L);
+  if (flags.holo && !cc) drawHolo(ctx, L);
   drawInfo(ctx, model);
   ctx.restore();
   return model;

@@ -62,6 +62,8 @@ export function buildModel(card, set, opts) {
   if (pf?.type) face.type_line = pf.type.replace(/ [–-] /g, ' — ');
   face.printed = !!pf?.text;
   face.type_line = historicTypeLine(face.type_line, card.released_at || '', face.oracle_text);
+  // "Æther" wurde erst mit Kaladesh (2016) zu "Aether" vereinheitlicht
+  if ((card.released_at || '') < '2016-09-30') face.name = face.name.replace(/\bAether/g, 'Æther');
   type = face.type_line;
   // auch die anderen Hälften/Seiten (Adventure, Split, MDFC-Lasche) mit gedrucktem Text
   if (opts.printedText !== false && Array.isArray(card.printed) && card.card_faces) {
@@ -392,7 +394,7 @@ export async function renderCard(canvas, model, deps) {
   const [art, setIcon, symbols, cc, scan] = await Promise.all([
     loadImage(opts.artUrl).catch(() => null),
     loadImage(model.set?.icon).catch(() => null),
-    loadSymbols(codes, symbolMap),
+    loadSymbols(codes, oldSymbolMap(symbolMap, model)),
     ccDefs ? loadLayers(ccDefs) : null,
     opts.alignArt && opts.scanUrl ? loadImage(opts.scanUrl).catch(() => null) : null,
     ensureFonts(),
@@ -831,6 +833,14 @@ export function historicTypeLine(type, released, text = '') {
     }
   }
   return t;
+}
+
+/** Karten vor Ice Age (Juni 1995) zeigen die alten Farbsymbole (Card Conjurer manaSymbols/old). */
+function oldSymbolMap(symbolMap, model) {
+  if (!((model.card.released_at || '9999') < '1995-06-03') || model.frameSource === 'code-only') return symbolMap;
+  const m = new Map(symbolMap);
+  for (const c of 'WUBRG') m.set(`{${c}}`, `/cc/img/manaSymbols/old/old${c.toLowerCase()}.svg`);
+  return m;
 }
 
 function basicLandSymbol(face) {

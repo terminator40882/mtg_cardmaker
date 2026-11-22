@@ -69,7 +69,8 @@ export const LAYOUTS = {
     text: { x: 197, y: 1286, w: 1104, h: 556 },
     nameText: { x: 167, right: 1371, baseline: 164, cap: 55, family: 'CMRetroTitle' },
     typeText: { x: 164, right: 1330, baseline: 1227, cap: 42, family: 'CMRetroTitle' },
-    cost: { d: 58, gap: 3, right: 1371, cy: 139, shadow: { dx: -2, dy: 3 } },
+    // an 20 Scans nachgemessen: Ø ~66 px, Abstand ~14 px
+    cost: { d: 68, gap: 12, right: 1380, cy: 143, shadow: { dx: -2, dy: 3 } },
     setSym: { right: 1332, cy: 1206, h: 72, maxW: 130 },
     pt: { cap: 57, family: 'CMRetroTitle', cx: 1306, baseline: 1959 },
     rules: { maxCap: 48, minCap: 16 },
@@ -89,7 +90,8 @@ export const LAYOUTS = {
     text: { x: 216, y: 1300, w: 1060, h: 528 },
     nameText: { x: 124, right: 1361, baseline: 139, cap: 51, family: 'CMRetroTitle' },
     typeText: { x: 133, right: 1358, baseline: 1224, cap: 45, family: 'CMRetroTitle' },
-    cost: { d: 60, gap: 2, right: 1361, cy: 121, shadow: { dx: -2, dy: 3 } },
+    // an 16 Scans nachgemessen: Ø ~66 px, Abstand ~16 px, ohne Schatten
+    cost: { d: 68, gap: 14, right: 1378, cy: 128 },
     setSym: { right: 1358, cy: 1204, h: 64, maxW: 120 },
     pt: { cap: 55, family: 'CMRetroTitle', cx: 1290, baseline: 1936 },
     rules: { maxCap: 50, minCap: 16, centerShort: 4 }, // bis Legends/4th: kurze Texte (≤ 4 Zeilen) zentriert

@@ -502,14 +502,25 @@ export async function renderCard(canvas, model, deps) {
       if (auto) {
         const caps = [];
         for (let c = auto.cap * 1.3; c >= auto.cap * 0.8; c -= 0.5) caps.push(c);
-        const box = { x: L.text.x, y: L.pwBox.y, w: L.text.w, h: L.pwBox.h };
+        // innen etwas Abstand: die Kontur des Textfelds im Scan ist keine Schrift
+        const box = { x: L.text.x + 4, y: L.pwBox.y + 16, w: L.text.w - 8, h: L.pwBox.h - 24 };
         const best = fitTextToScan(scan, box, W, H, caps, [1], (x, c) => {
           const lay = layoutPlaneswalker(x, rulesParas, L, { fixedCap: c.cap });
           if (!lay) return false;
           for (const r of lay.rows) drawText(x, r.lay, symbols);
           return true;
         }, `${opts.scanUrl}|pw|${model.faceIdx}|${model.face.oracle_text}`);
-        if (best) pwCap = best.cap;
+        if (best) {
+          // nicht größer als das, was ins Textfeld passt
+          let c = best.cap;
+          const fits = (cc) => {
+            const lay = layoutPlaneswalker(ctx, rulesParas, L, { fixedCap: cc });
+            const it = lay?.rows || [];
+            return lay && it.every((r) => !r.lay.overflow) && it.reduce((a, r) => a + r.lay.height, 0) + cc * 0.85 * it.length <= L.pwBox.h;
+          };
+          while (c > L.rules.minCap && !fits(c)) c -= 0.5;
+          pwCap = c;
+        }
       }
     }
     const pw = layoutPlaneswalker(ctx, rulesParas, L, { fixedCap: pwCap });

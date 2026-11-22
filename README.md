@@ -82,7 +82,7 @@ automatische Layout.
 
 **Farbabgleich** (Option, Standard an): Druckfarben sind dunkler und satter als die Card-Conjurer-Grafiken.
 Jeder Rahmenbereich (Textfeld, Namens-/Typleiste, Rahmen, Kontur, P/T-Box – je Maske der Card-Conjurer-Ebene)
-wird per Verstärkung je Farbkanal an die Medianfarbe des Scans angeglichen.
+wird in Mittelwert und Streuung je Farbkanal an den Scan angeglichen (Farbton, Helligkeit, Kontrast der Struktur).
 
 **Delta messen:** `node tools/delta.mjs --url http://localhost:8080 m19/156 grn/192 …` rendert die Karten im
 Browser (Playwright), vergleicht sie mit dem Scryfall-PNG und gibt die mittlere absolute Abweichung (0–255) je

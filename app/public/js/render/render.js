@@ -3,7 +3,7 @@ import { LAYOUTS, layoutForFrame, W, H } from './layouts.js';
 import { frameColors, BORDER_COLORS, VEHICLE_PT } from './palettes.js';
 import { drawFrameLayer, drawHolo, drawBrush, roundRect } from './frames.js';
 import { parseRules, parseFlavor, symbolsIn, smartQuotes } from './textparse.js';
-import { fitText, drawText, drawSymbol, drawFittedLine, sizeForCap, METRICS } from './textlayout.js';
+import { fitText, drawText, drawSymbol, drawFittedLine, sizeForCap, METRICS, layoutFromLines } from './textlayout.js';
 import { drawSetSymbol } from './setsymbol.js';
 import { loadImage, loadSymbols, ensureFonts } from './assets.js';
 import { luminance, mix } from './textures.js';
@@ -13,7 +13,7 @@ import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT } from './dfc.js';
 import { renderLandscape } from './landscape.js';
 import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield, setPwIcons } from './planeswalker.js';
 import { ccStatus, ccLayers, loadLayers, drawLayers, ccArtBounds, drawWatermark, ccPwIcons } from './cc.js';
-import { alignArt, fitTextToScan, blockExtent } from './align.js';
+import { alignArt, fitTextToScan, blockExtent, scanLines } from './align.js';
 
 export { W, H };
 
@@ -613,7 +613,21 @@ export async function renderCard(canvas, model, deps) {
       textOpts = best.o;
       textParas = best.vp;
     }
-    const lay = fitText(ctx, textParas, textBox, textOpts);
+    let lay = fitText(ctx, textParas, textBox, textOpts);
+    // Original-Layout übernehmen: Zeilenumbrüche, Grundlinien und Ränder wie auf dem Scan –
+    // nur, wenn der Text nicht angepasst wurde (gedruckter Text, Reminder + Flavor an, Größe automatisch)
+    if (scan && opts.alignArt && opts.copyLayout !== false && face.printed && opts.showReminder && opts.showFlavor
+      && !opts.fontCap && !(flags.planeswalker && !retroLayout)) {
+      // Fenster knapp um die Textspalte (ohne Rahmenkanten des Textfelds)
+      const region = { x: textBox.x - 10, y: textBox.y - 24, w: textBox.w + 18, h: textBox.h + 36 };
+      const found = scanLines(scan, region, W, H);
+      // nur echte Textzeilen: beginnen in der Textspalte, liegen im Textfeld
+      const lines = found && found.filter((l) => l.left < region.x + region.w * 0.6 && l.left >= textBox.x - 8
+        && l.base <= textBox.y + textBox.h + 8 && l.base > textBox.y);
+      const copied = lines && layoutFromLines(ctx, textParas, lay.cap, lines, textBox, lay.M);
+      if (globalThis.__fitDebug) console.log('copy', JSON.stringify((lines || []).map((l) => [Math.round(l.base), Math.round(l.left), Math.round(l.right)])), textParas.length, copied && copied.worst);
+      if (copied && copied.worst < 0.12) { lay = copied; model.layoutCopied = true; }
+    }
     if (flags.planeswalker && !retroLayout) drawPlaneswalkerRows(ctx, lay, L);
     drawText(ctx, lay, symbols, { flavorBar: opts.flavorBar !== false });
     model.textCap = lay.cap;

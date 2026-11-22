@@ -404,3 +404,61 @@ export function blockExtent(src, box, W, H, f) {
   }
   return top < 0 ? null : { top: box.y + top / f, bottom: box.y + bottom / f };
 }
+
+// ---------- Zeilenstruktur des Originals aus dem Scan lesen ----------
+
+/**
+ * Erkennt die Textzeilen im Scan: je Zeile Grundlinie, linke und rechte Tintenkante
+ * (Kartenkoordinaten). Kernbänder (x-Höhe) werden relativ zur lokalen Zeilendichte
+ * erkannt, damit auch kurze Zeilen ("turn.") gefunden werden.
+ */
+export function scanLines(scan, box, W, H) {
+  const f = (scan.naturalWidth || scan.width) / W;
+  const m = inkMask(scan, box, f, W, H);
+  const r = new Float32Array(m.h);
+  for (let y = 0; y < m.h; y++) { let s = 0; for (let x = 0; x < m.w; x++) s += m.out[y * m.w + x]; r[y] = s; }
+  // 1) Tintenblöcke, getrennt durch (fast) leere Zeilen
+  let runs = [];
+  let start = -1;
+  for (let y = 0; y <= m.h; y++) {
+    const on = y < m.h && r[y] > 2;
+    if (on && start < 0) start = y;
+    if (!on && start >= 0) { runs.push([start, y]); start = -1; }
+  }
+  // Rahmenkanten (fast volle Breite) und Splitter verwerfen
+  runs = runs.filter(([a, b]) => {
+    let mx = 0;
+    for (let y = a; y < b; y++) mx = Math.max(mx, r[y]);
+    return b - a >= 4 * f * 2 && mx < m.w * 0.6;
+  });
+  if (!runs.length) return null;
+  // 2) Blöcke mit mehreren Zeilen (enger Durchschuss) an der dünnsten Stelle teilen
+  const heights = runs.map(([a, b]) => b - a).sort((p, q) => p - q);
+  const typical = heights[Math.floor(heights.length / 2)];
+  const split = (a, b) => {
+    if (b - a <= typical * 1.6) return [[a, b]];
+    let mi = -1; let mv = Infinity;
+    for (let y = Math.round(a + typical * 0.55); y < b - typical * 0.55; y++) if (r[y] < mv) { mv = r[y]; mi = y; }
+    if (mi < 0) return [[a, b]];
+    return [...split(a, mi), ...split(mi + 1, b)];
+  };
+  runs = runs.flatMap(([a, b]) => split(a, b));
+  // abgetrennte Unterlängen und Splitter (deutlich niedriger als eine Zeile) verwerfen
+  runs = runs.filter(([a, b]) => b - a >= typical * 0.45);
+  // 3) je Zeile: Grundlinie = Ende des dichten Kerns, linke/rechte Kante
+  const lines = [];
+  for (const [a, b] of runs) {
+    let mx = 0;
+    for (let y = a; y < b; y++) mx = Math.max(mx, r[y]);
+    let base = b;
+    for (let y = b - 1; y >= a; y--) if (r[y] >= mx * 0.45) { base = y + 1; break; }
+    let left = m.w; let right = -1;
+    for (let y = a; y < b; y++) {
+      for (let x = 0; x < m.w; x++) if (m.out[y * m.w + x]) { left = Math.min(left, x); break; }
+      for (let x = m.w - 1; x >= 0; x--) if (m.out[y * m.w + x]) { right = Math.max(right, x); break; }
+    }
+    if (right < 0) continue;
+    lines.push({ base: box.y + base / f, left: box.x + left / f, right: box.x + (right + 1) / f, top: box.y + a / f });
+  }
+  return lines.length ? lines : null;
+}

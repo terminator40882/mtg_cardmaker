@@ -74,6 +74,12 @@ Bildregistrierung (Skalierung + Verschiebung, grob-zu-fein) exakt so ins Bildfen
 und Größe sowie Zeilenabstand des Regel-/Fähigkeitstexts werden so gewählt, dass der Satz am besten mit der
 Schrift auf dem Scan übereinstimmt.
 
+**Zeilenlayout vom Original** (Option, Standard an): Ist der Text unverändert (gedruckter Text, Reminder- und
+Flavortext an, Schriftgröße automatisch), werden Zeilenumbrüche, Grundlinien sowie linker/rechter Rand jeder
+Zeile aus dem Scan übernommen (Zeilenerkennung über leere Pixelzeilen, Umbrüche per dynamischer Programmierung
+auf die gemessenen Zeilenlängen, max. ±4 % Laufweitenkorrektur je Zeile). Wird der Text angepasst, greift das
+automatische Layout.
+
 **Delta messen:** `node tools/delta.mjs --url http://localhost:8080 m19/156 grn/192 …` rendert die Karten im
 Browser (Playwright), vergleicht sie mit dem Scryfall-PNG und gibt die mittlere absolute Abweichung (0–255) je
 Bereich aus; pro Karte entsteht ein Bild Nachbau | Original | Differenz.

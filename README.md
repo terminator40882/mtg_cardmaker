@@ -85,8 +85,12 @@ Für den geplanten Upscaling-Schritt ist `GET /api/art/:id` der Einhängepunkt.
 
 ## Hinweise
 
-- Der Kartentext ist der aktuelle **Oracle-Text** von Scryfall (für englische Drucke liefert Scryfall
-  keinen Originaldrucktext), d. h. ältere Karten zeigen die heutige Formulierung.
+- Der Kartentext ist standardmäßig der **gedruckte Text dieses Drucks** aus MTGJSON (`originalText`,
+  je Set einmal geladen und gecacht; Option „Gedruckter Text dieses Drucks“). Fehlt er, wird der Oracle-Text
+  von Scryfall verwendet; Reminder-Text, der auf dem Druck fehlt, wird dann per Vergleich mit dem Scan erkannt.
+  Alte Typzeilen werden rekonstruiert („Summon …“ vor der 6. Edition, Planeswalker ohne „Legendary“ vor Amonkhet).
+- Rahmenwahl nach Scryfall-`frame_effects`: Legendary-Krone, Nyx, Snow, Devoid, Miracle, Companion,
+  Colorshifted; farblose Nicht-Artefakte bekommen den farblosen Rahmen, phyrexisches Mana gilt nicht als Hybrid.
 - Ein Delta von exakt 0 ist nicht erreichbar: Der Scan ist ein gedrucktes, fotografiertes Exemplar
   (Druckraster, Farbabweichung, minimale Verzerrung), der Oracle-Text weicht bei älteren Karten vom Drucktext ab,
   und Copyright-Zeile/Fußzeile unterscheiden sich bewusst.

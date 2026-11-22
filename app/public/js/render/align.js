@@ -130,20 +130,36 @@ function inkMask(src, box, f, W, H, threshold = 110) {
   return { out, w, h };
 }
 
-/** Vergleicht zwei Tintenraster blockweise (Dichte je b×b-Block), robust gegen kleine Versätze. */
+/**
+ * Vergleicht zwei Tintenraster blockweise (Dichte je b×b-Block) per Korrelation.
+ * Liefert 1 - r, damit kleiner = besser. Korrelation statt Differenz, damit weniger
+ * Tinte (kleinere Schrift) nicht automatisch „besser“ abschneidet, wenn der Text abweicht.
+ */
 function densityDiff(a, r, b) {
-  const w = Math.floor(Math.min(a.w, r.w) / b); const h = Math.floor(Math.min(a.h, r.h) / b);
-  let err = 0;
+  // fein in der Höhe (Zeilenlage), grob in der Breite (Zeilenlänge) – robust gegen abweichenden Wortlaut
+  const bw = Math.max(b, Math.floor(Math.min(a.w, r.w) / 8));
+  const w = Math.floor(Math.min(a.w, r.w) / bw); const h = Math.floor(Math.min(a.h, r.h) / b);
+  const n = w * h;
+  const va = new Float32Array(n); const vr = new Float32Array(n);
   for (let by = 0; by < h; by++) {
     for (let bx = 0; bx < w; bx++) {
       let sa = 0; let sr = 0;
       for (let y = by * b; y < by * b + b; y++) {
-        for (let x = bx * b; x < bx * b + b; x++) { sa += a.out[y * a.w + x]; sr += r.out[y * r.w + x]; }
+        for (let x = bx * bw; x < bx * bw + bw; x++) { sa += a.out[y * a.w + x]; sr += r.out[y * r.w + x]; }
       }
-      err += Math.abs(sa - sr);
+      va[by * w + bx] = sa; vr[by * w + bx] = sr;
     }
   }
-  return err;
+  let ma = 0; let mr = 0;
+  for (let i = 0; i < n; i++) { ma += va[i]; mr += vr[i]; }
+  ma /= n; mr /= n;
+  let cov = 0; let sa2 = 0; let sr2 = 0;
+  for (let i = 0; i < n; i++) {
+    const da = va[i] - ma; const dr = vr[i] - mr;
+    cov += da * dr; sa2 += da * da; sr2 += dr * dr;
+  }
+  if (!sa2 || !sr2) return 1;
+  return 1 - cov / Math.sqrt(sa2 * sr2);
 }
 
 /**
@@ -165,7 +181,7 @@ export function fitCapToScan(scan, box, W, H, caps, draw, key) {
     x.setTransform(f, 0, 0, f, 0, 0);
     if (!draw(x, cap)) continue;  // cap kann auch ein Objekt {cap, k} sein
     const m = inkMask(c, box, f, W, H);
-    const err = densityDiff(m, ref, 4);
+    const err = densityDiff(m, ref, 3);
     if (!best || err < best.err) best = { cap, err };
     if (globalThis.__fitDebug) console.log('fit', JSON.stringify(cap), err);
   }

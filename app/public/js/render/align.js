@@ -303,9 +303,12 @@ function firstLine(m) {
   const core = b - a;
   const top = Math.max(0, Math.round(a - core * 1.0));
   const bottom = Math.min(m.h, Math.round(b + core * 0.6));
-  let left = m.w;
-  for (let y = top; y < bottom; y++) for (let x = 0; x < m.w; x++) if (m.out[y * m.w + x]) { if (x < left) left = x; break; }
-  return { base: b, core, top, bottom, left };
+  let left = m.w; let right = 0;
+  for (let y = top; y < bottom; y++) {
+    for (let x = 0; x < m.w; x++) if (m.out[y * m.w + x]) { if (x < left) left = x; break; }
+    for (let x = m.w - 1; x >= 0; x--) if (m.out[y * m.w + x]) { if (x > right) right = x; break; }
+  }
+  return { base: b, core, top, bottom, left, right };
 }
 
 /** Normierte Kreuzkorrelation zweier Zeilenstreifen (Dunkelheit), ausgerichtet an Grundlinie und linkem Rand. */
@@ -357,20 +360,20 @@ export function fitTextToScan(scan, box, W, H, caps, ks, draw, key) {
   };
   let res = null;
   if (rl) {
-    // 1) Größe: erste Zeile, erste ~45 % der Breite (die ersten Wörter)
-    const width = Math.round(ref.w * 0.45);
+    // 1) Größe: erste Zeile – Vergleich über die gemeinsame Länge (die ersten Wörter sind fast immer gleich)
     const above = Math.round(rl.core * 1.1); const below = Math.round(rl.core * 0.6);
     let best = null;
     for (const cap of caps) {
       const m = render({ cap, k: 1 });
       const ml = m && firstLine(m);
       if (!ml) continue;
+      const width = Math.round(Math.min(rl.right - rl.left, ml.right - ml.left) * 0.85);
       const r = stripCorr(ref, rl, m, ml, width, above, below);
       if (globalThis.__fitDebug) console.log('line', cap, r.toFixed(4), JSON.stringify(rl), JSON.stringify(ml));
       if (!best || r > best.r) best = { cap, r };
     }
-    if (best && best.r > 0.3) {
-      res = { cap: best.cap, k: 1 };
+    if (best && best.r > 0.2) {
+      res = { cap: best.cap, k: 1, r: best.r };
       // 2) Zeilenabstand passend zum Scan
       if (refStats?.pitch && ks.length > 1) {
         let bk = null;
@@ -387,4 +390,17 @@ export function fitTextToScan(scan, box, W, H, caps, ks, draw, key) {
   }
   if (key) textCache.set(key, res);
   return res;
+}
+
+
+/** Obere/untere Tintenkante (Kartenkoordinaten) des Textblocks in box – für Bild oder Canvas. */
+export function blockExtent(src, box, W, H, f) {
+  const m = inkMask(src, box, f, W, H);
+  let top = -1; let bottom = -1;
+  for (let y = 0; y < m.h; y++) {
+    let s = 0;
+    for (let x = 0; x < m.w; x++) s += m.out[y * m.w + x];
+    if (s > 2) { if (top < 0) top = y; bottom = y; }
+  }
+  return top < 0 ? null : { top: box.y + top / f, bottom: box.y + bottom / f };
 }

@@ -181,7 +181,8 @@ export function place(lay, box, opts) {
   lay.box = box;
   lay.collides = false;
   const lines = lay.blocks.flatMap((b) => b.lines);
-  const center = opts.centerShort && lines.length <= 3 && lay.blocks.every((b) => b.para.kind !== 'flavor');
+  const maxCentered = typeof opts.centerShort === 'number' ? opts.centerShort : 3;
+  const center = opts.centerShort && lines.length <= maxCentered && lay.blocks.every((b) => b.para.kind !== 'flavor');
   for (const l of lines) l.dx = center ? (box.w - l.w) / 2 : 0;
   if (opts.exclude) {
     for (const b of lay.blocks) {

@@ -13,7 +13,7 @@ import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT } from './dfc.js';
 import { renderLandscape } from './landscape.js';
 import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield, setPwIcons } from './planeswalker.js';
 import { ccStatus, ccLayers, loadLayers, drawLayers, ccArtBounds, drawWatermark, ccPwIcons } from './cc.js';
-import { alignArt, fitTextToScan } from './align.js';
+import { alignArt, fitTextToScan, blockExtent } from './align.js';
 
 export { W, H };
 
@@ -532,7 +532,7 @@ export async function renderCard(canvas, model, deps) {
     const d = Math.min(L.text.h * 0.6, 330);
     drawSymbol(ctx, symbols, basicSym, L.text.x + L.text.w / 2 - d / 2, L.text.y + L.text.h / 2 - d / 2, d);
   } else if (paras.length) {
-    const textOpts = {
+    const baseOpts = {
       maxCap: flags.planeswalker ? L.rules.maxCap * 0.9 : L.rules.maxCap,
       minCap: L.rules.minCap,
       fixedCap: opts.fontCap || null,
@@ -540,32 +540,62 @@ export async function renderCard(canvas, model, deps) {
       metrics: L.metrics,
       centerShort: L.rules.centerShort,
     };
+    let textOpts = baseOpts;
+    let textParas = paras;
     if (!opts.fontCap && opts.alignArt && scan) {
-      // Schriftgröße wie im Original: Kandidaten bis zur automatisch gewählten Größe am Scan vergleichen
-      const auto = fitText(ctx, paras, textBox, textOpts).cap;
       const baseM = { ...METRICS, ...(L.metrics || {}) };
       const withK = (k) => ({ ...(L.metrics || {}), lineHeight: baseM.lineHeight * k, paraGap: baseM.paraGap * k, flavorGap: baseM.flavorGap * k });
-      const draw = (x, c) => {
-        drawText(x, fitText(x, paras, textBox, { ...textOpts, fixedCap: c.cap, metrics: withK(c.k) }), symbols, { flavorBar: false });
-        return true;
-      };
-      const key = `${opts.scanUrl}|${model.faceIdx}|${L.style}${L.variant || ''}|${opts.showFlavor}|${opts.showReminder}|${model.face.oracle_text}`;
-      // 1) Versalhöhe bei Standard-Zeilenabstand, 2) Zeilenabstand (Durchschuss) um die beste Größe herum
-      const caps = [];
-      for (let c = L.rules.maxCap + 2; c >= Math.max(L.rules.minCap, auto * 0.7); c -= 0.5) caps.push(c);
-      const cap = fitTextToScan(scan, textBox, W, H, caps, [0.88, 0.91, 0.94, 0.97, 1, 1.03, 1.06], draw, `${key}|f`);
-      if (cap) {
-        // nie größer als das, was ins Textfeld passt
-        let c = cap.cap;
-        const fits = (cc) => {
-          const lay = fitText(ctx, paras, textBox, { ...textOpts, fixedCap: cc, metrics: withK(cap.k) });
-          return !lay.overflow && lay.height <= textBox.h + 4 && !lay.collides;
-        };
-        while (c > L.rules.minCap && !fits(c)) c -= 0.5;
-        textOpts.fixedCap = c; textOpts.metrics = withK(cap.k);
+      const fScan = (scan.naturalWidth || scan.width) / W;
+      const scanExt = blockExtent(scan, textBox, W, H, fScan);
+      // Varianten: Oracle-Text enthält oft Reminder-Text, der auf diesem Druck fehlt
+      const variants = [paras];
+      if (opts.showReminder && /\(/.test(face.oracle_text || '')) {
+        const noRem = parseRules(face.oracle_text, { showReminder: false, keywords, planeswalker: flags.planeswalker && !retroLayout });
+        variants.push([...noRem, ...flavorParas]);
       }
+      let best = null;
+      variants.forEach((vp, vi) => {
+        const auto = fitText(ctx, vp, textBox, baseOpts).cap;
+        const draw = (x, c) => {
+          drawText(x, fitText(x, vp, textBox, { ...baseOpts, fixedCap: c.cap, metrics: withK(c.k) }), symbols, { flavorBar: false });
+          return true;
+        };
+        const key = `${opts.scanUrl}|${model.faceIdx}|${L.style}${L.variant || ''}|${opts.showFlavor}|${vi}|${model.face.oracle_text}`;
+        // 1) Versalhöhe über die erste Zeile, 2) Zeilenabstand über den Zeilenabstand im Scan
+        const caps = [];
+        for (let c = L.rules.maxCap * 1.15; c >= Math.max(L.rules.minCap, auto * 0.7); c -= 0.5) caps.push(c);
+        const fit = fitTextToScan(scan, textBox, W, H, caps, [0.88, 0.91, 0.94, 0.97, 1, 1.03, 1.06], draw, `${key}|f`);
+        let o = baseOpts;
+        if (fit) {
+          // nie größer als das, was ins Textfeld passt
+          let c = fit.cap;
+          const fits = (cc) => {
+            const lay = fitText(ctx, vp, textBox, { ...baseOpts, fixedCap: cc, metrics: withK(fit.k) });
+            return !lay.overflow && lay.height <= textBox.h + 4 && !lay.collides;
+          };
+          while (c > L.rules.minCap && !fits(c)) c -= 0.5;
+          o = { ...baseOpts, fixedCap: c, metrics: withK(fit.k) };
+        }
+        // Lage des Textblocks mit dem Scan vergleichen (obere und untere Kante)
+        let score = 0;
+        if (scanExt) {
+          const tmp = document.createElement('canvas');
+          tmp.width = W; tmp.height = H;
+          const tx = tmp.getContext('2d');
+          drawText(tx, fitText(tx, vp, textBox, o), symbols, { flavorBar: false });
+          const e = blockExtent(tmp, textBox, W, H, fScan);
+          score = e ? Math.abs(e.top - scanExt.top) + Math.abs(e.bottom - scanExt.bottom) : 1e9;
+        }
+        // erste Zeile (Wortlaut) zählt stärker als die Blocklage
+        const r = fit?.r || 0;
+        const total = score - r * 40;
+        if (globalThis.__fitDebug) console.log('variant', vi, JSON.stringify(fit), score, total);
+        if (!best || total < best.total - 4) best = { total, o, vp };
+      });
+      textOpts = best.o;
+      textParas = best.vp;
     }
-    const lay = fitText(ctx, paras, textBox, textOpts);
+    const lay = fitText(ctx, textParas, textBox, textOpts);
     if (flags.planeswalker && !retroLayout) drawPlaneswalkerRows(ctx, lay, L);
     drawText(ctx, lay, symbols, { flavorBar: opts.flavorBar !== false });
     model.textCap = lay.cap;

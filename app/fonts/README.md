@@ -1,7 +1,11 @@
-# Eigene Schriften
+# Schriften
 
-Die Schriften echter Magic-Karten sind proprietär und werden deshalb nicht mitgeliefert.
-Ohne eigene Dateien nutzt die App frei lizenzierte Ersatzschriften, die per npm lokal im Image liegen:
+In diesem Ordner liegen (per Git LFS) die Karten-Schriften aus dem Card-Conjurer-Repo
+(`fiahdrgn473/CardConjurer`, Commit `0eb50b0`, Ordner `fonts/`): `beleren-b.ttf`, `beleren-bsc.ttf`,
+`mplantin.ttf`, `mplantin-i.ttf`, `matrix-b.ttf`, `matrix.ttf`, `goudy-medieval.ttf`, `gotham-medium.ttf`.
+Es sind proprietäre Schriften; ohne `git lfs pull` liegen hier nur Platzhalter, die ignoriert werden.
+
+Fehlen die Dateien, nutzt die App frei lizenzierte Ersatzschriften, die per npm lokal im Image liegen:
 Tinos (Regeltext), PT Serif Bold (Name/Typzeile), Alegreya (Retro-Titel), Alegreya Sans (Sammlerinfo).
 Sie wurden per Pixel-Vergleich mit Kartenscans ausgewählt und in der Laufweite korrigiert.
 Eigene Originalschriften werden automatisch ohne Korrektur verwendet.

@@ -4,7 +4,7 @@
 // die per npm lokal installiert sind (keine CDNs). Die Auswahl (Tinos für MPlantin,
 // PT Serif Bold für Beleren) wurde per Pixel-Korrelation gegen Kartenscans aus
 // ~90 freien Schriften ermittelt.
-import { readdir } from 'node:fs/promises';
+import { readdir, open } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -29,6 +29,19 @@ const ROLES = [
 
 const FORMAT = { ttf: 'truetype', otf: 'opentype', woff: 'woff', woff2: 'woff2' };
 
+/** true, wenn die Datei nur ein Git-LFS-Pointer ist (Repo ohne "git lfs pull" geklont). */
+async function isLfsPointer(file) {
+  try {
+    const fh = await open(file, 'r');
+    const buf = Buffer.alloc(40);
+    await fh.read(buf, 0, 40, 0);
+    await fh.close();
+    return buf.toString('utf8').startsWith('version https://git-lfs');
+  } catch {
+    return true;
+  }
+}
+
 async function customFonts() {
   try {
     const files = await readdir(FONTS_DIR);
@@ -36,6 +49,7 @@ async function customFonts() {
     for (const f of files) {
       const ext = path.extname(f).slice(1).toLowerCase();
       if (!FORMAT[ext]) continue;
+      if (await isLfsPointer(path.join(FONTS_DIR, f))) continue; // ohne "git lfs pull" nur Platzhalter
       map.set(path.basename(f, path.extname(f)).toLowerCase().replace(/[^a-z0-9]/g, ''), f);
     }
     return map;

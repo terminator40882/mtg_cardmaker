@@ -97,6 +97,8 @@ Für den geplanten Upscaling-Schritt ist `GET /api/art/:id` der Einhängepunkt.
 - Schriften aus Card Conjurer werden unter ihren dortigen Dateinamen erkannt (`beleren-b.ttf`, `beleren-bsc.ttf`,
   `mplantin.ttf`, `mplantin-i.ttf`, `matrix-b.ttf`, `goudy-medieval.ttf`, `gotham-medium.ttf`), wenn sie in
   `app/fonts` liegen.
+- Die Karten-Schriften (Beleren, MPlantin, Matrix, Goudy Medieval, Gotham) liegen per Git LFS in `app/fonts`
+  (aus dem Card-Conjurer-Repo, siehe `app/fonts/README.md`).
 - Ohne die Originalschriften (Beleren, MPlantin) werden freie Ersatzschriften verwendet. Sie wurden per
   Pixel-Korrelation gegen Kartenscans aus ~90 freien Schriften ausgewählt: **Tinos** für den Regeltext
   (Times-Klon – Times New Roman stammt von Plantin ab) und **PT Serif Bold** für Name/Typzeile. Ihre Laufweite

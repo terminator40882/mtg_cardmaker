@@ -1,6 +1,8 @@
 import * as api from './api.js';
 import { buildModel, renderCard, facesOf } from './render/render.js';
 import { setFontScales, setOriginalFonts } from './render/textlayout.js';
+import { forgetImage } from './render/assets.js';
+import * as customArt from './customart.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { prints: [], card: null, set: null, printId: null, rendering: null, pending: false };
@@ -99,6 +101,9 @@ async function selectPrint(id) {
     resetArt();
     $('editor').hidden = false;
     updateOriginal();
+    await customArt.ensure(artKey());
+    if (state.printId !== id) return;
+    updateArtPanel();
     scheduleRender();
   } catch (err) {
     $('status').textContent = err.message;
@@ -116,9 +121,16 @@ function updateOriginal() {
   $('orig').src = url ? `/asset?u=${encodeURIComponent(url)}` : '';
 }
 
+/** Seite, deren Artwork verwendet wird (einseitige Bilder bei Split/Adventure/Flip: immer 0). */
+function artFace() {
+  const face = Number($('opt-face').value || 0);
+  return state.card.card_faces?.[face]?.image_uris ? face : 0;
+}
+const artKey = () => customArt.keyOf(state.card.id, artFace());
+const originalArtUrl = () => api.artUrl(state.card.id, artFace());
+
 function currentOptions(scale = 1) {
   const face = Number($('opt-face').value || 0);
-  const hasFaceArt = !!state.card.card_faces?.[face]?.image_uris;
   return {
     face,
     frame: $('opt-frame').value,
@@ -132,7 +144,7 @@ function currentOptions(scale = 1) {
     holoStamp: $('opt-stamp').checked,
     footer: $('opt-footer').value.trim(),
     art: { zoom: Number($('art-zoom').value), dx: Number($('art-dx').value), dy: Number($('art-dy').value) },
-    artUrl: api.artUrl(state.card.id, hasFaceArt ? face : 0),
+    artUrl: customArt.peek(artKey())?.url || originalArtUrl(),
     alignArt: $('opt-align').checked,
     workers: !globalThis.__noWorkers,
     copyLayout: $('opt-copylayout').checked,
@@ -177,7 +189,14 @@ function scheduleRender() {
 for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-stamp', 'opt-reminder', 'opt-printed', 'opt-size', 'opt-source', 'opt-frame', 'opt-border', 'opt-footer', 'opt-align', 'opt-copylayout', 'opt-matchcolors', 'art-zoom', 'art-dx', 'art-dy']) {
   $(id).addEventListener('input', scheduleRender);
 }
-$('opt-face').addEventListener('input', () => { updateOriginal(); scheduleRender(); });
+$('opt-face').addEventListener('input', async () => {
+  updateOriginal();
+  const card = state.card;
+  await customArt.ensure(artKey());
+  if (state.card !== card) return;
+  updateArtPanel();
+  scheduleRender();
+});
 $('art-reset').addEventListener('click', () => { resetArt(); scheduleRender(); });
 $('options').addEventListener('submit', (e) => e.preventDefault());
 
@@ -204,6 +223,123 @@ $('download').addEventListener('click', async () => {
   } finally {
     btn.disabled = false;
   }
+});
+
+// ---------- Artwork: Original herunterladen, eigenes (upscaltes) Artwork verwenden ----------
+function cardFileName() {
+  const face = state.card.card_faces?.[artFace()];
+  const name = (face?.name || state.card.name).replace(/[^\w\- ]+/g, '').trim() || 'card';
+  return `${name} (${state.card.set.toUpperCase()} ${state.card.collector_number})`;
+}
+
+function updateArtPanel() {
+  const url = originalArtUrl();
+  if ($('art-thumb-img').getAttribute('src') !== url) $('art-thumb-img').src = url;
+  const entry = customArt.peek(artKey());
+  const drop = $('art-drop');
+  drop.classList.toggle('filled', !!entry);
+  drop.querySelector('.art-drop-empty').hidden = !!entry;
+  $('art-custom-img').hidden = !entry;
+  $('art-custom-badge').hidden = !entry;
+  $('art-clear').hidden = !entry;
+  drop.title = entry ? 'Klicken, um ein anderes Artwork zu wählen' : 'Eigenes Artwork ablegen oder auswählen';
+  if (entry && $('art-custom-img').getAttribute('src') !== entry.url) $('art-custom-img').src = entry.url;
+  if (!entry) { $('art-custom-img').removeAttribute('src'); $('art-custom-info').textContent = ''; return; }
+  const info = $('art-custom-info');
+  info.textContent = `Eigenes Artwork: ${entry.name} · ${entry.width} × ${entry.height} px`;
+  // Seitenverhältnis/Faktor gegenüber dem Scryfall-Crop (zeigt, ob das Bild zur Karte passt)
+  const orig = $('art-thumb-img');
+  const compare = () => {
+    if (customArt.peek(artKey()) !== entry || !orig.naturalWidth) return;
+    const factor = entry.width / orig.naturalWidth;
+    const arDiff = Math.abs(entry.width / entry.height / (orig.naturalWidth / orig.naturalHeight) - 1);
+    info.textContent = `Eigenes Artwork: ${entry.name} · ${entry.width} × ${entry.height} px (${factor.toFixed(1).replace('.', ',')}× Original)`;
+    if (arDiff > 0.02) {
+      info.insertAdjacentHTML('beforeend', '<br><span class="warn">Seitenverhältnis weicht vom Original ab – Ausrichtung am Scan kann ungenau sein.</span>');
+    }
+  };
+  if (orig.complete && orig.naturalWidth) compare();
+  else orig.addEventListener('load', compare, { once: true });
+}
+
+$('art-thumb').addEventListener('click', async () => {
+  const btn = $('art-thumb');
+  btn.disabled = true;
+  try {
+    const res = await fetch(originalArtUrl());
+    if (!res.ok) throw new Error(`Fehler ${res.status}`);
+    const blob = await res.blob();
+    const ext = { 'image/png': 'png', 'image/webp': 'webp' }[blob.type] || 'jpg';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${cardFileName()} art.${ext}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch (err) {
+    $('status').textContent = `Artwork-Download fehlgeschlagen: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function useCustomArt(file) {
+  if (!file || !state.card) return;
+  const key = artKey();
+  const drop = $('art-drop');
+  drop.classList.add('busy');
+  try {
+    const old = customArt.peek(key);
+    await customArt.store(key, file);
+    if (old) forgetImage(old.url);
+  } catch (err) {
+    $('art-custom-info').textContent = `${file.name}: ${err.message}`;
+    return;
+  } finally {
+    drop.classList.remove('busy');
+  }
+  if (artKey() !== key) return;
+  resetArt();
+  updateArtPanel();
+  scheduleRender();
+}
+
+$('art-drop').addEventListener('click', (e) => {
+  if (e.target.closest('#art-clear')) return;
+  $('art-file').click();
+});
+$('art-drop').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('art-file').click(); }
+});
+$('art-file').addEventListener('change', () => {
+  const file = $('art-file').files[0];
+  $('art-file').value = ''; // dieselbe Datei erneut wählbar
+  useCustomArt(file);
+});
+$('art-drop').addEventListener('dragenter', (e) => { e.preventDefault(); $('art-drop').classList.add('dragover'); });
+$('art-drop').addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+$('art-drop').addEventListener('dragleave', (e) => {
+  if (!$('art-drop').contains(e.relatedTarget)) $('art-drop').classList.remove('dragover');
+});
+$('art-drop').addEventListener('drop', (e) => {
+  e.preventDefault();
+  $('art-drop').classList.remove('dragover');
+  const file = [...(e.dataTransfer.files || [])].find((f) => /^image\//.test(f.type)) || e.dataTransfer.files?.[0];
+  useCustomArt(file);
+});
+// daneben fallengelassene Dateien nicht im Browser öffnen
+for (const t of ['dragover', 'drop']) {
+  window.addEventListener(t, (e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); });
+}
+
+$('art-clear').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  const key = artKey();
+  const old = await customArt.remove(key);
+  if (old) forgetImage(old.url);
+  if (artKey() !== key) return;
+  resetArt();
+  updateArtPanel();
+  scheduleRender();
 });
 
 // Schriftgrößen-Auswahl

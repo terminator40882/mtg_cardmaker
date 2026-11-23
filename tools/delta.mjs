@@ -116,15 +116,18 @@ for (const spec of cards) {
       tmp.width = W; tmp.height = H;
       tmp.getContext('2d').putImageData(d, 0, 0);
       ox.drawImage(tmp, W * 2, 0);
+      const lm = window.__lastModel || {};
       return {
         name: card.name, set: card.set, cn: card.collector_number, frame: card.frame,
+        copied: lm.layoutCopied, printed: lm.printed, variant: lm.textVariant,
         total: tot / n, regions: sums.map(([s, c]) => (c ? s / c : 0)),
         png: out.toDataURL('image/png'),
       };
     }, { regions: REGIONS });
     const file = path.join(opt.out, `${r.set}-${r.cn}${face ? '-b' : ''}.png`.replace(/[^\w.\-]/g, '_'));
     await writeFile(file, Buffer.from(r.png.split(',')[1], 'base64'));
-    rows.push({ spec, name: r.name, frame: r.frame, total: r.total, regions: r.regions, file });
+    rows.push({ spec: `${r.set}/${r.cn}${face ? ':1' : ''}`, name: r.name, frame: r.frame, total: r.total, regions: r.regions, file,
+      layout: `${r.copied ? 'kopiert' : 'auto'}${r.printed ? '' : ' (Oracle)'}${r.variant ? ` [${r.variant}]` : ''}` });
   } catch (err) {
     rows.push({ spec, error: err.message });
   }
@@ -134,11 +137,11 @@ await browser.close();
 if (opt.json) {
   console.log(JSON.stringify(rows, null, 2));
 } else {
-  const head = ['Karte', 'Rahmen', 'Gesamt', ...REGIONS.map(([n]) => n)];
+  const head = ['Karte', 'Rahmen', 'Gesamt', ...REGIONS.map(([n]) => n), 'Zeilenlayout'];
   console.log(head.join('\t'));
   for (const r of rows) {
     if (r.error) { console.log(`${r.spec}\tFEHLER: ${r.error}`); continue; }
-    console.log([`${r.name} (${r.spec})`, r.frame, r.total.toFixed(1), ...r.regions.map((v) => v.toFixed(1))].join('\t'));
+    console.log([`${r.name} (${r.spec})`, r.frame, r.total.toFixed(1), ...r.regions.map((v) => v.toFixed(1)), r.layout].join('\t'));
   }
   const ok = rows.filter((r) => !r.error);
   if (ok.length > 1) console.log(`Mittel\t\t${(ok.reduce((s, r) => s + r.total, 0) / ok.length).toFixed(1)}`);

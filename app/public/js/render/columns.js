@@ -48,6 +48,10 @@ function textCenter(lay) {
   return (lines[0].baseline - lay.cap + lines[lines.length - 1].baseline + lay.cap * METRICS.descent) / 2 + lay.offset;
 }
 
+// Grafiken aus Card Conjurer (versionSaga.js / versionClass.js); null -> per Code gezeichnet
+let ccImg = null;
+export function setColumnImages(imgs) { ccImg = imgs || null; }
+
 // ---------------------------------------------------------------- Saga
 
 const CHAPTER_RE = /^([IVX]+(?:,\s*[IVX]+)*)\s+—\s+(.*)$/;
@@ -111,8 +115,8 @@ export function drawSagaText(ctx, model, L, pal, symbols, keywords) {
     }),
   };
 
-  // Kapitel-Leiste (Pfeil) links über die ganze Spalte
-  {
+  // Kapitel-Leiste (Pfeil) links über die ganze Spalte – im Card-Conjurer-Rahmen schon enthalten
+  if (!ccImg) {
     const top = L.box.y + 8;
     const bottom = L.box.y + L.box.h - 10;
     const x = L.saga.trackX;
@@ -133,7 +137,10 @@ export function drawSagaText(ctx, model, L, pal, symbols, keywords) {
   }
   res.rows.forEach((r, i) => {
     // Trennlinien zwischen den Abschnitten
-    if (i > 0) {
+    if (i > 0 && ccImg?.sagaDivider) {
+      // Card Conjurer: sagaDivider.png ab x = 0,1 · Breite, Breite 0,3947, Höhe 0,0029 (mittig auf der Grenze)
+      ctx.drawImage(ccImg.sagaDivider, 0.1 * L.W, r.top - 0.0029 * L.H / 2, 0.3947 * L.W, 0.0029 * L.H);
+    } else if (i > 0) {
       ctx.save();
       ctx.strokeStyle = rgba('#000000', 0.28);
       ctx.lineWidth = 3;
@@ -147,9 +154,10 @@ export function drawSagaText(ctx, model, L, pal, symbols, keywords) {
     if (r.section.kind === 'chapter') {
       const n = r.section.numerals.length;
       const cy = r.lay ? textCenter(r.lay) : (r.top + r.bottom) / 2;
-      const hh = 104;
+      // Abstand mehrerer Kapitel-Symbole: Card Conjurer 2 × 0,0358 der Kartenhöhe
+      const step = ccImg?.sagaChapter ? 2 * 0.0358 * L.H : 104 + 8;
       r.section.numerals.forEach((num, k) => {
-        drawChapterMarker(ctx, num, L.saga.markerX, cy + (k - (n - 1) / 2) * (hh + 8), pal);
+        drawChapterMarker(ctx, num, L.saga.markerX, cy + (k - (n - 1) / 2) * step, pal);
       });
     }
   });
@@ -159,6 +167,14 @@ export function drawSagaText(ctx, model, L, pal, symbols, keywords) {
 function drawChapterMarker(ctx, numeral, cx, cy, pal) {
   const w = 88;
   const h = 104;
+  if (ccImg?.sagaChapter) {
+    // Card Conjurer: sagaChapter.png, 0,0787 × 0,0629 der Kartengröße
+    const iw = 0.0787 * 1500; const ih = 0.0629 * 2100;
+    ctx.drawImage(ccImg.sagaChapter, cx - iw / 2, cy - ih / 2, iw, ih);
+    // Ziffern wie Card Conjurer: 0,0324 · H Schriftgröße, Grundlinie 0,0429 · H unter der Oberkante
+    drawFittedLine(ctx, numeral, 'CMRules', 46, cx, cy - ih / 2 + 0.0429 * 2100, iw - 24, { align: 'center', color: '#1c1a17' });
+    return;
+  }
   const hex = (ww, hh) => {
     ctx.beginPath();
     ctx.moveTo(cx, cy - hh / 2);
@@ -263,6 +279,12 @@ function divider(ctx, x, y, w) {
 }
 
 function drawLevelBar(ctx, header, x, y, w, h, pal, symbols) {
+  if (ccImg?.classHeader) {
+    // Card Conjurer: class/header.png über x = 0,5014, Breite 0,422 der Karte
+    ctx.drawImage(ccImg.classHeader, 0.5014 * 1500, y, 0.422 * 1500, h);
+    drawLevelText(ctx, header, x, y, w, h, symbols);
+    return;
+  }
   ctx.save();
   ctx.fillStyle = darken(pal.box, 0.07);
   ctx.fillRect(x, y, w, h);
@@ -280,6 +302,10 @@ function drawLevelBar(ctx, header, x, y, w, h, pal, symbols) {
   ctx.lineTo(x + w, y + h);
   ctx.stroke();
   ctx.restore();
+  drawLevelText(ctx, header, x, y, w, h, symbols);
+}
+
+function drawLevelText(ctx, header, x, y, w, h, symbols) {
   // Kosten links, "Level N" rechts
   const d = 38;
   const codes = header.cost.match(/\{[^}]+\}/g) || [];

@@ -21,21 +21,25 @@ export function drawAdventure(ctx, model, L, pal, symbols, keywords, exclude) {
   const rightParas = [...parse(main.oracle_text), ...(opts.showFlavor ? parseFlavor(main.flavor_text || card.flavor_text) : [])];
   const leftParas = [...parse(adv.oracle_text), ...(opts.showFlavor ? parseFlavor(adv.flavor_text) : [])];
 
+  // Card-Conjurer-Rahmen enthält Buchrücken und Leisten des Abenteuers bereits
+  const ccFrame = model.frameSource === 'cc';
   // Buchrücken
-  ctx.save();
-  const g = ctx.createLinearGradient(A.spine - 40, 0, A.spine + 40, 0);
-  g.addColorStop(0, 'rgba(0,0,0,0)');
-  g.addColorStop(0.45, 'rgba(0,0,0,0.18)');
-  g.addColorStop(0.5, 'rgba(0,0,0,0.55)');
-  g.addColorStop(0.55, 'rgba(0,0,0,0.18)');
-  g.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(A.spine - 40, L.box.y + 7, 80, L.box.h - 14);
-  ctx.restore();
+  if (!ccFrame) {
+    ctx.save();
+    const g = ctx.createLinearGradient(A.spine - 40, 0, A.spine + 40, 0);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.45, 'rgba(0,0,0,0.18)');
+    g.addColorStop(0.5, 'rgba(0,0,0,0.55)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.18)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(A.spine - 40, L.box.y + 7, 80, L.box.h - 14);
+    ctx.restore();
+  }
 
   // Leisten des Abenteuers
   const col = barColor(adv);
-  for (const b of [A.nameBar, A.typeBar]) {
+  for (const b of ccFrame ? [] : [A.nameBar, A.typeBar]) {
     ctx.save();
     const gg = ctx.createLinearGradient(0, b.y, 0, b.y + b.h);
     gg.addColorStop(0, mix(col, '#ffffff', 0.12));

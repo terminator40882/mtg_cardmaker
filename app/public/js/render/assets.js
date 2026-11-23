@@ -25,11 +25,14 @@ export function loadImage(url) {
 export async function loadSymbols(codes, symbolMap) {
   const out = new Map();
   await Promise.all([...new Set(codes)].map(async (code) => {
-    const url = symbolMap.get(code) || symbolMap.get(code.toUpperCase());
-    if (!url) return;
-    try {
-      out.set(code, await loadImage(url));
-    } catch { /* Symbol fehlt -> wird als Text gezeichnet */ }
+    // Eintrag: URL oder Liste von URLs (bevorzugte zuerst, z. B. Card Conjurer -> Scryfall)
+    const entry = symbolMap.get(code) || symbolMap.get(code.toUpperCase());
+    for (const url of [].concat(entry || [])) {
+      try {
+        out.set(code, await loadImage(url));
+        return;
+      } catch { /* nächste Quelle; fehlen alle -> wird als Text gezeichnet */ }
+    }
   }));
   return out;
 }

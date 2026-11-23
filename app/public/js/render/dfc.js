@@ -12,8 +12,36 @@ export function dfcKind(card) {
   return null;
 }
 
-/** Zeichnet das Symbol vor dem Namen; liefert, um wie viel der Name nach rechts rückt. */
-export function drawDfcIcon(ctx, kind, back, effects = [], cy = 155, cxIn = null) {
+// Transform-Symbole aus Card Conjurer (packM15TransformTypes) je Scryfall-Rahmeneffekt: [Vorderseite, Rückseite]
+const ICONS = '/cc/img/frames/m15/transform/icons';
+const TRANSFORM_ICONS = {
+  sunmoondfc: ['sun.svg', 'moon.svg'],
+  compasslanddfc: ['compass.svg', 'land.svg'],
+  originpwdfc: ['spark.svg', 'planeswalker.svg'],
+  mooneldrazidfc: ['fullmoon.svg', 'emrakul.svg'],
+  waxingandwaningmoondfc: ['fullmoon.svg', 'moon.svg'],
+  fandfc: ['fanClosed.svg', 'fanOpen.svg'],
+  upsidedowndfc: ['default.png', 'downArrow.png'],
+};
+/** URL des Card-Conjurer-Symbols vor dem Namen (nur Transform; MDFC-Pfeil ist Teil des Rahmenbilds). */
+export function dfcIconUrl(kind, back, effects = []) {
+  if (kind !== 'transform') return null;
+  const key = Object.keys(TRANSFORM_ICONS).find((k) => effects.includes(k));
+  const pair = TRANSFORM_ICONS[key] || ['default.png', 'downArrow.png'];
+  return `${ICONS}/${pair[back ? 1 : 0]}`;
+}
+
+/**
+ * Zeichnet das Symbol vor dem Namen; liefert, um wie viel der Name nach rechts rückt.
+ * cc: Rahmen aus Card-Conjurer-Grafiken – MDFC-Pfeil ist dort schon enthalten, Transform-Symbol
+ * (ccIcon) liegt an der Stelle des Kreises im Rahmenbild (Bounds aus packM15TransformTypes).
+ */
+export function drawDfcIcon(ctx, kind, back, effects = [], cy = 155, cxIn = null, { cc = false, ccIcon = null } = {}) {
+  if (cc && kind === 'mdfc') return 120;
+  if (cc && kind === 'transform' && ccIcon) {
+    ctx.drawImage(ccIcon, 0.0594 * 1500, 0.0505 * 2100, 0.0734 * 1500, 0.0524 * 2100);
+    return 118;
+  }
   ctx.save();
   if (kind === 'mdfc') {
     const cx = 125;
@@ -92,11 +120,17 @@ export function drawDfcIcon(ctx, kind, back, effects = [], cy = 155, cxIn = null
 }
 
 /** Lasche unten links mit Typ + Kosten/Manafähigkeit der anderen Seite. */
-export function drawMdfcTab(ctx, other, back, symbols, colorIdentity = []) {
+export function drawMdfcTab(ctx, other, back, symbols, colorIdentity = [], { cc = false } = {}) {
   const y = 1868;
   const h = 58;
   const x0 = 50;
   const x1 = 690;
+  // Card-Conjurer-Rahmen enthalten die Lasche samt Pfeil (Maske "Flipside") -> nur die Texte
+  if (!cc) drawTabShape(ctx, other, back, colorIdentity, x0, x1, y, h);
+  drawTabText(ctx, other, symbols, x0, x1, y, h);
+}
+
+function drawTabShape(ctx, other, back, colorIdentity, x0, x1, y, h) {
   // Farbe wie der Rahmen der anderen Seite (Land -> Farbe der erzeugten Mana)
   const ci = /Land/.test(other.type_line || '') ? [...new Set(((other.oracle_text || '').match(/Add [^.]*/g) || []).join(' ').match(/[WUBRG]/g) || [])] : colorIdentity;
   const pal = frameColors({ ...other, color_identity: ci })[0];
@@ -125,6 +159,9 @@ export function drawMdfcTab(ctx, other, back, symbols, colorIdentity = []) {
   else { ctx.moveTo(ax, ay); ctx.lineTo(ax + 20, ay - 13); ctx.lineTo(ax + 20, ay + 13); }
   ctx.fill();
   ctx.restore();
+}
+
+function drawTabText(ctx, other, symbols, x0, x1, y, h) {
   const mainType = (other.type_line || '').split('—')[0].replace(/\b(Legendary|Basic|Snow|World|Tribal|Kindred)\b/g, '').trim().split(' ').pop();
   drawFittedLine(ctx, mainType, 'CMTitle', 30, x0 + 54, y + h / 2 + 15, 220, { color: '#fff' });
   // rechts: Manafähigkeit (Länder) oder Manakosten

@@ -22,12 +22,14 @@ Danach im Browser: <http://localhost:8080> (Direktlink: `http://localhost:8080/?
   - Spezial-Layouts (moderner Rahmen): **Planeswalker** (3 und 4 Fähigkeiten), **Saga**, **Class**, **Adventure**,
     **Split** (zwei gedrehte Hälften), **Battle** (Querformat), **Transform-DFC** (Sonne/Mond-Symbol, Rückseiten-P/T),
     **Modal DFC** (Linsen-Symbol + Lasche mit Infos zur Rückseite).
-  - Rahmen-Varianten: **Snow**, **Nyx** (Verzauberungs-Kreaturen ab THB), **Devoid** (durchscheinend).
+  - Rahmen-Varianten: **Snow**, **Nyx** (Verzauberungs-Kreaturen ab THB), **Devoid** (durchscheinend),
+    **Inverted** (durchscheinendes Textfeld, weiße Schrift).
   - Farben: Mono, Gold (zweifarbig mit geteilter Innenkante), Hybrid (geteilter Rahmen), Artefakt, farbige Artefakte,
     Länder (mit Farbakzent), farblos, Vehikel.
-  - Legendary-Krone (ab Dominaria 2018), P/T-Box, Standardländer (großes Manasymbol), Holo-Siegel,
+  - Legendary-Krone (ab Dominaria 2018), P/T-Box, Standardländer (großes Manasymbol), Holo-Stempel
+    (optional, Standard aus – dann ohne Stempel und ohne Bogen der Rahmenkante, auch bei Planeswalkern),
     Randfarbe (schwarz/weiß/silber/gold).
-  - Set-Symbol von Scryfall in Seltenheitsfarbe; Sammlerinfo im jeweiligen Stil (inkl. neuem Format ab 2023).
+  - Offizielles Set-Symbol in Seltenheitsfarbe (Card Conjurer, sonst Scryfall); Sammlerinfo im jeweiligen Stil (inkl. neuem Format ab 2023).
 - **Textsatz** – an Scans echter Karten vermessen und per Pixel-Overlay geprüft (Grundlinien ±4 px):
   - Schriftgröße wie im Druck in 0,5-pt-Schritten (max. 9 pt), größte passende Größe wird gewählt.
   - Zeilenabstand 1,545 × Versalhöhe, Absatzabstand 0,62 ×, Flavor-Abstand 1,26 ×, Trennlinie.
@@ -57,17 +59,23 @@ gespeist aus den Scryfall-Daten des gewählten Drucks:
 
 | Scryfall | Card-Conjurer-Pack |
 |---|---|
-| Rahmen 2015 | M15 „new“ (inkl. Legendary-Krone, Nyx, Snow, Devoid, Fahrzeug, Holo-Stempel, Land-/Hybrid-/Gold-Varianten) |
+| Rahmen 2015 | M15 „new“ (inkl. Legendary-Krone, Nyx, Snow, Devoid, Fahrzeug, optional Holo-Stempel, Land-/Hybrid-/Gold-Varianten) |
 | Rahmen 2015 + Transform / Modal DFC | M15 Transform Front/Back, Modal Front/Back |
 | Planeswalker (3 / 4 Fähigkeiten) | Planeswalker Regular / Tall inkl. Loyalitäts-Symbole und Fähigkeitszeilen |
-| Saga, Class, Adventure | Saga Regular, Class, Adventure |
+| Saga, Class, Adventure | Saga Regular, Class, Adventure (inkl. Kapitel-Symbolen, Level-Leisten, Buchseite in Abenteuerfarbe) |
+| Split, Battle | Split (Hälften je Farbe, zweifarbige Hälften mit Textfeld-/Rahmenübergang), Battle |
 | Rahmen 2003 | 8th Edition |
 | Rahmen 1997 | Seventh Edition |
 | Rahmen 1993 | ABU (Alpha/Beta/Unlimited) bzw. Fourth |
 
-Wasserzeichen (Gilden, Clans, Colleges …) kommen ebenfalls aus `Assets/`. Split- und Battle-Karten sowie
-alle Karten ohne `git lfs pull` zeichnet weiterhin der Code-Renderer. Von Scryfall kommen Kartendaten,
-das zugeschnittene Artwork, der Original-Scan sowie Mana- und Set-Symbole (SVG).
+Ebenfalls aus `Assets/` (wie in Card Conjurer): Wasserzeichen, Mana- und Textsymbole (`manaSymbols/`, alte
+Farbsymbole vor Ice Age), offizielle Set-Symbole je Seltenheit (`setSymbols/official/`), Flavor-Trennlinie
+(`bar.png`), Transform-Symbole (Sonne/Mond, Kompass/Land …), Planeswalker-Loyalitätssymbole und -Zeilen,
+Saga-Kapitel und -Trenner, Class-Level-Leisten. Loyalitäts-/Verteidigungs-Schild, MDFC-Pfeil und -Lasche sowie
+das Adventure-Buch sind Teil der Rahmenbilder. Der Pinsel vor dem Künstlernamen ist – wie in Card Conjurer – der
+Glyph U+FFEE der Originalschriften (Beleren Small Caps, Matrix Bold). Nur ohne `git lfs pull` (bzw. Option
+„Rahmengrafik: per Code gezeichnet“) zeichnet der Code-Renderer Rahmen und Elemente selbst; Symbole, die Card Conjurer nicht hat,
+kommen von Scryfall. Von Scryfall kommen außerdem Kartendaten, das zugeschnittene Artwork und der Original-Scan.
 
 **Abgleich mit dem Original-Scan** (Option „am Original-Scan ausrichten“, Standard an): Das Artwork wird per
 Bildregistrierung (Skalierung + Verschiebung, grob-zu-fein) exakt so ins Bildfenster gelegt wie auf dem Scan,
@@ -78,11 +86,24 @@ Schrift auf dem Scan übereinstimmt.
 Flavortext an, Schriftgröße automatisch), werden Zeilenumbrüche, Grundlinien sowie linker/rechter Rand jeder
 Zeile aus dem Scan übernommen (Zeilenerkennung über leere Pixelzeilen, Umbrüche per dynamischer Programmierung
 auf die gemessenen Zeilenlängen, max. ±4 % Laufweitenkorrektur je Zeile). Wird der Text angepasst, greift das
-automatische Layout.
+automatische Layout. Helle Schrift auf dunklem Textfeld wird erkannt (Helligkeit umgekehrt), das Druckraster alter
+Scans vor der Zeilenerkennung leicht weichgezeichnet.
+
+**Gedruckter Wortlaut ohne MTGJSON-Text:** Für viele Sets (30A, ATH, BTD, CED, PTC, SUM, TD0, Promos …) hat MTGJSON
+keinen `originalText`. Dann werden aus dem Oracle-Text die Formulierungen früherer Regel-Epochen abgeleitet
+(„enters“ → „enters the battlefield“, „mana value“ → „converted mana cost“, „any target“ → „target creature or
+player“, „battlefield“ → „play“, „deals N damage to target creature or player“ → „does N damage to one target“).
+Welche auf dem Druck steht, entscheidet der Vergleich mit dem Scan (ohne Scan das Erscheinungsdatum); danach wird
+auch das Zeilenlayout übernommen.
+
+**Inverted-Rahmen** (Scryfall-Rahmeneffekt `inverted`, z. B. FNM- und Secret-Lair-Drucke): Card-Conjurer-Pack
+„Clear Textboxes“ – das Artwork läuft unter Typzeile und Textfeld weiter, beide halbtransparent dunkel, Typ- und
+Regeltext weiß mit Schatten. Sonst wird die Farbe des Regeltexts am Scan gemessen (helle Schrift → weiß mit Schatten).
 
 **Farbabgleich** (Option, Standard an): Druckfarben sind dunkler und satter als die Card-Conjurer-Grafiken.
 Jeder Rahmenbereich (Textfeld, Namens-/Typleiste, Rahmen, Kontur, P/T-Box – je Maske der Card-Conjurer-Ebene)
-wird in Mittelwert und Streuung je Farbkanal an den Scan angeglichen (Farbton, Helligkeit, Kontrast der Struktur).
+wird in Mittelwert und Streuung je Farbkanal an den Scan angeglichen (Farbton, Helligkeit, Kontrast der Struktur);
+bei zweifarbigen Rahmen linke und rechte Hälfte getrennt.
 
 **Leistung:** Der Server startet einen Worker-Prozess je CPU-Kern (Node `cluster`, Anzahl per `WEB_CONCURRENCY`);
 API-Anfragen an Scryfall bleiben insgesamt bei ~9/s, Bilder vom CDN (`*.scryfall.io`, ohne Rate-Limit) werden parallel

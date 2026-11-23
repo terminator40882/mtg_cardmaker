@@ -1,6 +1,6 @@
 import * as api from './api.js';
 import { buildModel, renderCard, facesOf } from './render/render.js';
-import { setFontScales } from './render/textlayout.js';
+import { setFontScales, setOriginalFonts } from './render/textlayout.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { prints: [], card: null, set: null, printId: null, rendering: null, pending: false };
@@ -129,6 +129,7 @@ function currentOptions(scale = 1) {
     printedText: $('opt-printed').checked,
     fontCap: Number($('opt-size').value) || null,
     flavorBar: $('opt-flavorbar').checked,
+    holoStamp: $('opt-stamp').checked,
     footer: $('opt-footer').value.trim(),
     art: { zoom: Number($('art-zoom').value), dx: Number($('art-dx').value), dy: Number($('art-dy').value) },
     artUrl: api.artUrl(state.card.id, hasFaceArt ? face : 0),
@@ -145,6 +146,7 @@ let fontsReady = null;
 async function deps() {
   fontsReady ||= api.fontStatus().then((st) => {
     setFontScales(Object.fromEntries(Object.entries(st).map(([fam, v]) => [fam, v.scaleX])));
+    setOriginalFonts(Object.entries(st).filter(([, v]) => v.source === 'custom').map(([fam]) => fam));
   }).catch(() => {});
   await fontsReady;
   const [symbolMap, keywords] = await Promise.all([api.symbology(), api.catalog('keyword-abilities')]);
@@ -158,7 +160,7 @@ function scheduleRender() {
     try {
       const model = buildModel(state.card, state.set, currentOptions(1));
       await renderCard($('card'), model, await deps());
-      window.__lastModel = { layout: model.layout, textCap: model.textCap, frameSource: model.frameSource };
+      window.__lastModel = { layout: model.layout, textCap: model.textCap, frameSource: model.frameSource, layoutCopied: !!model.layoutCopied, printed: !!model.face?.printed, textVariant: model.textVariant || null, artAligned: !!model.artAligned };
       document.body.dataset.rendered = `${state.card.id}:${model.opts.face}:${++renderCount}`;
       $('status').textContent = model.textCap ? `Regeltext: Versalhöhe ${model.textCap.toFixed(2)} px${$('opt-size').value ? '' : ' (automatisch angepasst)'}${model.layoutCopied ? ' · Zeilenlayout vom Original übernommen' : ''}` : '';
     } catch (err) {
@@ -172,7 +174,7 @@ function scheduleRender() {
   });
 }
 
-for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-reminder', 'opt-printed', 'opt-size', 'opt-source', 'opt-frame', 'opt-border', 'opt-footer', 'opt-align', 'opt-copylayout', 'opt-matchcolors', 'art-zoom', 'art-dx', 'art-dy']) {
+for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-stamp', 'opt-reminder', 'opt-printed', 'opt-size', 'opt-source', 'opt-frame', 'opt-border', 'opt-footer', 'opt-align', 'opt-copylayout', 'opt-matchcolors', 'art-zoom', 'art-dx', 'art-dy']) {
   $(id).addEventListener('input', scheduleRender);
 }
 $('opt-face').addEventListener('input', () => { updateOriginal(); scheduleRender(); });

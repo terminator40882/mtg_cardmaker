@@ -704,8 +704,12 @@ export async function renderCard(canvas, model, deps) {
       }
       let copied = lines && layoutFromLines(ctx, textParas, lay.cap, lines, textBox, lay.M);
       // Schriftgröße aus den gemessenen Zeilenlängen nachführen, wenn die Breiten nicht passen
+      // obere Grenze aus dem kleinsten Zeilenabstand im Scan (sonst überlappen die Zeilen)
+      const pitches = (lines || []).slice(1).map((l, i) => l.base - lines[i].base).filter((d) => d > 5);
+      const capLimit = pitches.length ? Math.min(...pitches) / 1.42 : Infinity;
+      if (copied && copied.cap > capLimit) copied = layoutFromLines(ctx, textParas, capLimit, lines, textBox, lay.M) || copied;
       for (let it = 0; it < 3 && copied && copied.worst >= 0.04; it++) {
-        const c2 = copied.cap * Math.max(0.8, Math.min(1.3, copied.widthRatio));
+        const c2 = Math.min(capLimit, copied.cap * Math.max(0.8, Math.min(1.3, copied.widthRatio)));
         const alt = layoutFromLines(ctx, textParas, c2, lines, textBox, lay.M);
         if (!alt || alt.worst >= copied.worst) break;
         copied = alt;

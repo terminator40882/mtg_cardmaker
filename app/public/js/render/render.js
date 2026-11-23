@@ -604,8 +604,10 @@ export async function renderCard(canvas, model, deps) {
 
   // Typzeile + Set-Symbol
   const plainSymbol = (model.card.released_at || '9999') < '1998-06-01';
-  const symW = drawSetSymbol(ctx, setIcon, model.card.rarity, { ...L.setSym, outline: L.setSym.outline ?? (retro ? 3 : 4), plain: plainSymbol,
-    scan: opts.alignArt ? scan : null, W, H, fixedSize: L.style === 'm15', official: officialSym });
+  // Drucke ohne Set-Symbol: bekannte Sets nie; sonst entscheidet bei alten Rahmen der Scan
+  const noSymbol = NO_SYMBOL_SETS.has(model.card.set);
+  const symW = noSymbol ? 0 : drawSetSymbol(ctx, setIcon, model.card.rarity, { ...L.setSym, outline: L.setSym.outline ?? (retro ? 3 : 4), plain: plainSymbol,
+    scan: opts.alignArt ? scan : null, W, H, fixedSize: L.style === 'm15', official: officialSym, requireInScan: retro });
   const T = L.typeText;
   // Farbindikator (Punkt vor der Typzeile, z. B. Rückseiten von DFCs) – Card Conjurer m15/ciPips
   const ciShift = face.color_indicator && L.style !== 'retro' ? await drawColorIndicator(ctx, face.color_indicator, T) : 0;
@@ -988,6 +990,12 @@ export function historicTypeLine(type, released, text = '', oracle = '') {
   }
   return t;
 }
+
+/**
+ * Sets, deren Drucke kein Set-Symbol tragen: Alpha bis 5th Edition, Collectors' Editions,
+ * Summer Magic, Foreign Black/White Border, Pro-Tour-Sammlerkarten, Anthologies.
+ */
+const NO_SYMBOL_SETS = new Set(['lea', 'leb', '2ed', '3ed', '4ed', '5ed', 'ced', 'cei', 'sum', 'fbb', '4bb', 'fwb', 'ptc', 'ath']);
 
 /**
  * Offizielles Set-Symbol aus Card Conjurer (Assets/img/setSymbols/official/<set>-<rarity>.svg,

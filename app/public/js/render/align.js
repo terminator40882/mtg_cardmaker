@@ -183,14 +183,34 @@ function inkMask(src, box, f, W, H, threshold = 110, smooth = false) {
   const w = Math.max(1, Math.round(box.w * f)); const h = Math.max(1, Math.round(box.h * f));
   const [, x] = workCanvas(w, h, 'ink');
   const sw = src.width || src.naturalWidth; const sh = src.height || src.naturalHeight;
-  if (smooth) {
-    // Rand mitnehmen, damit der Weichzeichner an den Kanten keinen hellen Saum erzeugt
+  const grab = (filter) => {
     x.clearRect(0, 0, w, h);
-    x.filter = 'blur(0.8px)';
+    x.filter = filter;
+    x.drawImage(src, box.x * sw / W, box.y * sh / H, box.w * sw / W, box.h * sh / H, 0, 0, w, h);
+    x.filter = 'none';
+    return maskFromData(x.getImageData(0, 0, w, h).data, w, h, threshold);
+  };
+  const m = grab('none');
+  // Weichzeichnen nur bei Druckraster: viele vereinzelte "Tinten"-Pixel (Rasterpunkte) –
+  // Schriftstriche hängen zusammen; sonst gingen feine Details (Gedankenstriche, Zeilenabstände) verloren
+  if (smooth && isolatedInk(m) > 0.035) return grab('blur(0.8px)');
+  return m;
+}
+
+/** Anteil der Tintenpixel ohne Tinten-Nachbarn (4er-Nachbarschaft). */
+function isolatedInk(m) {
+  const { out, w, h } = m;
+  let ink = 0; let iso = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      if (!out[i]) continue;
+      ink++;
+      if (!out[i - 1] && !out[i + 1] && !out[i - w] && !out[i + w]) iso++;
+    }
   }
-  x.drawImage(src, box.x * sw / W, box.y * sh / H, box.w * sw / W, box.h * sh / H, 0, 0, w, h);
-  x.filter = 'none';
-  return maskFromData(x.getImageData(0, 0, w, h).data, w, h, threshold);
+  if (globalThis.__fitDebug) console.log('isolated', ink, (iso / Math.max(1, ink)).toFixed(3));
+  return ink ? iso / ink : 0;
 }
 
 /**

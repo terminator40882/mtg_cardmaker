@@ -793,7 +793,7 @@ export async function renderCard(canvas, model, deps) {
       // Wortlaut/Reminder-Variante wählen: jede Variante im Zeilenlayout des Scans (falls übernehmbar)
       // zeichnen und die Schrift pixelweise mit dem Scan vergleichen; ohne Zeilen zählt die
       // Bewertung aus fitRulesVariant (erste Zeile + Blocklage). Die erste Variante (gedruckter bzw.
-      // nach Datum erwarteter Text) gewinnt bei Gleichstand.
+      // nach Datum erwarteter Text) gewinnt, solange keine andere deutlich (> 0,05) besser passt.
       const region = { x: textBox.x - 10, y: textBox.y - 10, w: textBox.w + 20, h: textBox.h + 20 };
       let best = null;
       rulesVariants.forEach(({ paras: vp, label }, vi) => {
@@ -803,7 +803,7 @@ export async function renderCard(canvas, model, deps) {
         const cand = copied && copied.worst < 0.12 ? copied : auto;
         const sim = rulesVariants.length > 1 ? inkSimilarity(scan, region, W, H, (x) => drawText(x, cand, symbols, { flavorBar: false })) : 0;
         if (globalThis.__fitDebug) console.log('variant', vi, label, JSON.stringify(r.fit), r.total, 'sim', sim.toFixed(3), 'worst', copied && copied.worst.toFixed(3));
-        const better = !best || (lines ? sim > best.sim + 0.02 : r.total < best.total - 4);
+        const better = !best || (lines ? sim > best.sim + 0.05 : r.total < best.total - 4);
         if (better) best = { total: r.total, sim, o: r.o, vp, label, auto, copied };
       });
       textOpts = best.o;

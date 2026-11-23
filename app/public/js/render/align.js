@@ -127,18 +127,37 @@ function workCanvas(w, h, slot = 'a') {
   return [c, x];
 }
 
-/** Tintenraster aus RGBA-Daten: Schrift = deutlich dunkler als der Zeilenhintergrund. */
+/**
+ * Tintenraster aus RGBA-Daten: Schrift = deutlich dunkler als der Zeilenhintergrund.
+ * Helle Schrift auf dunklem Grund (z. B. Clear Textboxes / "inverted"-Drucke): überwiegen deutlich
+ * hellere Ausreißer gegenüber dem Median, wird die Helligkeit umgekehrt, damit die Schrift als Tinte zählt.
+ */
 function maskFromData(d, w, h, threshold = 110) {
   const out = new Uint8Array(w * h);
   const dk = new Float32Array(w * h); // Dunkelheit 0..1 relativ zum Zeilenhintergrund
   const lum = new Float32Array(w);
   const hist = new Uint32Array(256);
   const k = Math.floor(w * 0.85);
+  // Polarität: Median der Helligkeit (transparente Pixel = hell)
+  for (let i = 0; i < w * h; i++) {
+    const j = i * 4;
+    hist[d[j + 3] > 128 ? (d[j] * 0.299 + d[j + 1] * 0.587 + d[j + 2] * 0.114) | 0 : 255]++;
+  }
+  let acc0 = 0; let median = 255;
+  for (let v = 0; v < 256; v++) { acc0 += hist[v]; if (acc0 > (w * h) / 2) { median = v; break; } }
+  // umkehren, wenn deutlich hellere Ausreißer (Schrift) überwiegen als deutlich dunklere
+  let brighter = 0; let darker = 0;
+  for (let v = 0; v < 256; v++) {
+    if (v > median + 70) brighter += hist[v];
+    else if (v < median - 70) darker += hist[v];
+  }
+  const invert = median < 140 && brighter > 0.01 * w * h && brighter > darker * 2;
   for (let y = 0; y < h; y++) {
     hist.fill(0);
     for (let xx = 0; xx < w; xx++) {
       const i = (y * w + xx) * 4;
-      const l = d[i + 3] > 128 ? d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114 : 255;
+      let l = d[i + 3] > 128 ? d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114 : 255;
+      if (invert && d[i + 3] > 128) l = 255 - l;
       lum[xx] = l; hist[l | 0]++;
     }
     // 85-%-Perzentil der Zeilenhelligkeit über das Histogramm (statt Sortieren)
@@ -155,12 +174,22 @@ function maskFromData(d, w, h, threshold = 110) {
   return { out, dk, w, h };
 }
 
-/** Dunkle Pixel (Schrift) in einem Kartenausschnitt als 0/1-Raster. */
-function inkMask(src, box, f, W, H, threshold = 110) {
+/**
+ * Dunkle Pixel (Schrift) in einem Kartenausschnitt als 0/1-Raster.
+ * smooth (für Scans): leicht weichzeichnen – sonst hält die Erkennung das Druckraster alter Karten
+ * (z. B. Collectors' Edition, Moiré im Scan) für Schrift.
+ */
+function inkMask(src, box, f, W, H, threshold = 110, smooth = false) {
   const w = Math.max(1, Math.round(box.w * f)); const h = Math.max(1, Math.round(box.h * f));
   const [, x] = workCanvas(w, h, 'ink');
   const sw = src.width || src.naturalWidth; const sh = src.height || src.naturalHeight;
+  if (smooth) {
+    // Rand mitnehmen, damit der Weichzeichner an den Kanten keinen hellen Saum erzeugt
+    x.clearRect(0, 0, w, h);
+    x.filter = 'blur(0.8px)';
+  }
   x.drawImage(src, box.x * sw / W, box.y * sh / H, box.w * sw / W, box.h * sh / H, 0, 0, w, h);
+  x.filter = 'none';
   return maskFromData(x.getImageData(0, 0, w, h).data, w, h, threshold);
 }
 
@@ -293,7 +322,7 @@ export function fitTextToScan(scan, box, W, H, caps, ks, draw, key) {
   if (!scan || !caps.length) return null;
   if (key && textCache.has(key)) return textCache.get(key);
   const f = (scan.naturalWidth || scan.width) / W;
-  const ref = inkMask(scan, box, f, W, H);
+  const ref = inkMask(scan, box, f, W, H, 110, true);
   const rl = firstLine(ref);
   const refStats = lineStats(ref);
   // Kandidaten direkt in Ausschnittgröße rendern
@@ -344,8 +373,8 @@ export function fitTextToScan(scan, box, W, H, caps, ks, draw, key) {
 
 
 /** Obere/untere Tintenkante (Kartenkoordinaten) des Textblocks in box – für Bild oder Canvas. */
-export function blockExtent(src, box, W, H, f) {
-  const m = inkMask(src, box, f, W, H);
+export function blockExtent(src, box, W, H, f, smooth = false) {
+  const m = inkMask(src, box, f, W, H, 110, smooth);
   let top = -1; let bottom = -1;
   for (let y = 0; y < m.h; y++) {
     let s = 0;
@@ -364,7 +393,7 @@ export function blockExtent(src, box, W, H, f) {
  */
 export function scanLines(scan, box, W, H, exclude = null) {
   const f = (scan.naturalWidth || scan.width) / W;
-  const m = inkMask(scan, box, f, W, H);
+  const m = inkMask(scan, box, f, W, H, 110, true);
   // Bereich ausblenden (P/T-Box ragt unten rechts ins Textfeld)
   if (exclude) {
     const ex = Math.max(0, Math.round((exclude.x - box.x) * f)); const ey = Math.max(0, Math.round((exclude.y - box.y) * f));
@@ -464,7 +493,7 @@ export function boxEdges(src, W, H, box) {
  * Position in Kartenkoordinaten; gemessen wird im Kern der Buchstaben (erodierte Maske), damit
  * Schatten und Hintergrund nicht einfließen. Liefert '#rrggbb' oder null.
  */
-export function sampleTextColor(scan, W, H, region, draw) {
+export function sampleTextColor(scan, W, H, region, draw, { maxLightBg = 256 } = {}) {
   if (!scan) return null;
   const f = Math.min(1, (scan.naturalWidth || scan.width) / W * 2);
   const w = Math.round(region.w * f); const h = Math.round(region.h * f);
@@ -501,7 +530,10 @@ export function sampleTextColor(scan, W, H, region, draw) {
     }
   }
   // Schatten liegen meist außerhalb; helle Schrift mit Schatten: helle Gruppe muss deutlich vertreten sein
-  const pick = light[0].length > dark[0].length * 0.35 ? light : dark;
+  // maxLightBg: helle Schrift nur auf dunklerem Grund (moderne Rahmen – sonst sind die "hellen"
+  // Pixel Sprenkel der Leistentextur; alte Rahmen haben dagegen weiße Titel auf hellem Rahmen)
+  const pick = light[0].length > dark[0].length * 0.35 && bg < maxLightBg ? light : dark;
+  if (pick[0].length < 20) return null;
   const r = pick[0]; const g = pick[1]; const b = pick[2];
   const med = (a) => a.sort((p, q) => p - q)[Math.floor(a.length / 2)];
   const hex = (v) => Math.round(v).toString(16).padStart(2, '0');

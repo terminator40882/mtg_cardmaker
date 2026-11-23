@@ -159,7 +159,7 @@ function scheduleRender() {
     try {
       const model = buildModel(state.card, state.set, currentOptions(1));
       await renderCard($('card'), model, await deps());
-      window.__lastModel = { layout: model.layout, textCap: model.textCap, frameSource: model.frameSource };
+      window.__lastModel = { layout: model.layout, textCap: model.textCap, frameSource: model.frameSource, layoutCopied: !!model.layoutCopied, printed: !!model.face?.printed, textVariant: model.textVariant || null, artAligned: !!model.artAligned };
       document.body.dataset.rendered = `${state.card.id}:${model.opts.face}:${++renderCount}`;
       $('status').textContent = model.textCap ? `Regeltext: Versalhöhe ${model.textCap.toFixed(2)} px${$('opt-size').value ? '' : ' (automatisch angepasst)'}${model.layoutCopied ? ' · Zeilenlayout vom Original übernommen' : ''}` : '';
     } catch (err) {

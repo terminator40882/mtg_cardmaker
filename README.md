@@ -22,7 +22,8 @@ Danach im Browser: <http://localhost:8080> (Direktlink: `http://localhost:8080/?
   - Spezial-Layouts (moderner Rahmen): **Planeswalker** (3 und 4 Fähigkeiten), **Saga**, **Class**, **Adventure**,
     **Split** (zwei gedrehte Hälften), **Battle** (Querformat), **Transform-DFC** (Sonne/Mond-Symbol, Rückseiten-P/T),
     **Modal DFC** (Linsen-Symbol + Lasche mit Infos zur Rückseite).
-  - Rahmen-Varianten: **Snow**, **Nyx** (Verzauberungs-Kreaturen ab THB), **Devoid** (durchscheinend).
+  - Rahmen-Varianten: **Snow**, **Nyx** (Verzauberungs-Kreaturen ab THB), **Devoid** (durchscheinend),
+    **Inverted** (durchscheinendes Textfeld, weiße Schrift).
   - Farben: Mono, Gold (zweifarbig mit geteilter Innenkante), Hybrid (geteilter Rahmen), Artefakt, farbige Artefakte,
     Länder (mit Farbakzent), farblos, Vehikel.
   - Legendary-Krone (ab Dominaria 2018), P/T-Box, Standardländer (großes Manasymbol), Holo-Siegel,
@@ -84,7 +85,19 @@ Schrift auf dem Scan übereinstimmt.
 Flavortext an, Schriftgröße automatisch), werden Zeilenumbrüche, Grundlinien sowie linker/rechter Rand jeder
 Zeile aus dem Scan übernommen (Zeilenerkennung über leere Pixelzeilen, Umbrüche per dynamischer Programmierung
 auf die gemessenen Zeilenlängen, max. ±4 % Laufweitenkorrektur je Zeile). Wird der Text angepasst, greift das
-automatische Layout.
+automatische Layout. Helle Schrift auf dunklem Textfeld wird erkannt (Helligkeit umgekehrt), das Druckraster alter
+Scans vor der Zeilenerkennung leicht weichgezeichnet.
+
+**Gedruckter Wortlaut ohne MTGJSON-Text:** Für viele Sets (30A, ATH, BTD, CED, PTC, SUM, TD0, Promos …) hat MTGJSON
+keinen `originalText`. Dann werden aus dem Oracle-Text die Formulierungen früherer Regel-Epochen abgeleitet
+(„enters“ → „enters the battlefield“, „mana value“ → „converted mana cost“, „any target“ → „target creature or
+player“, „battlefield“ → „play“, „deals N damage to target creature or player“ → „does N damage to one target“).
+Welche auf dem Druck steht, entscheidet der Vergleich mit dem Scan (ohne Scan das Erscheinungsdatum); danach wird
+auch das Zeilenlayout übernommen.
+
+**Inverted-Rahmen** (Scryfall-Rahmeneffekt `inverted`, z. B. FNM- und Secret-Lair-Drucke): Card-Conjurer-Pack
+„Clear Textboxes“ – das Artwork läuft unter Typzeile und Textfeld weiter, beide halbtransparent dunkel, Typ- und
+Regeltext weiß mit Schatten. Sonst wird die Farbe des Regeltexts am Scan gemessen (helle Schrift → weiß mit Schatten).
 
 **Farbabgleich** (Option, Standard an): Druckfarben sind dunkler und satter als die Card-Conjurer-Grafiken.
 Jeder Rahmenbereich (Textfeld, Namens-/Typleiste, Rahmen, Kontur, P/T-Box – je Maske der Card-Conjurer-Ebene)

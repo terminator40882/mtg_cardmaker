@@ -22,6 +22,12 @@ export const scaleOf = (family) => SCALE.get(family) || 1;
 // Schriften, die als Originaldatei (Card-Conjurer-Schrift) vorliegen – nur diese haben z. B. den
 // Pinsel-Glyph U+FFEE (Beleren Small Caps, Matrix Bold), den Card Conjurer vor den Künstlernamen setzt
 const ORIGINAL = new Set();
+/** relative Helligkeit 0..1 eines #rrggbb-Werts */
+function luminanceOf(hex) {
+  const v = parseInt(String(hex).replace('#', '').slice(0, 6), 16);
+  if (Number.isNaN(v)) return 0;
+  return (((v >> 16) & 255) * 0.299 + ((v >> 8) & 255) * 0.587 + (v & 255) * 0.114) / 255;
+}
 export function setOriginalFonts(list) { ORIGINAL.clear(); for (const f of list) ORIGINAL.add(f); }
 export const isOriginalFont = (family) => ORIGINAL.has(family);
 export const getFontScales = () => Object.fromEntries(SCALE);
@@ -207,9 +213,22 @@ export function drawText(ctx, lay, symbols, opts = {}) {
   ctx.save();
   ctx.fillStyle = opts.color || '#111';
   ctx.textBaseline = 'alphabetic';
+  const light = !!opts.color && luminanceOf(opts.color) > 0.5;
+  // Schlagschatten (Card Conjurer Clear Textboxes: shadowX 0,0014 · B, shadowY 0,001 · H ≈ 2 px);
+  // Canvas-Schatten wirken in Gerätepixeln -> mit der Ausgabeskalierung multiplizieren
+  if (opts.shadow) {
+    const k = Math.abs(ctx.getTransform().a) || 1;
+    ctx.shadowColor = opts.shadow;
+    ctx.shadowOffsetX = 2.1 * k;
+    ctx.shadowOffsetY = 2.1 * k;
+    ctx.shadowBlur = 0;
+  }
   for (const block of lay.blocks) {
     if (block.flavorBarY != null && opts.flavorBar !== false) {
-      drawFlavorBar(ctx, box.x, block.flavorBarY + offset, box.w, cap);
+      ctx.save();
+      ctx.shadowColor = 'transparent';
+      drawFlavorBar(ctx, box.x, block.flavorBarY + offset, box.w, cap, light);
+      ctx.restore();
     }
     for (const line of block.lines) {
       const by = line.baseline + offset;
@@ -270,11 +289,19 @@ export function drawSymbol(ctx, symbols, code, x, y, d, shadow = null) {
   }
 }
 
-// Flavor-Trennlinie aus Card Conjurer (manaSymbols/bar.png); null -> per Code gezeichnet
+// Flavor-Trennlinie aus Card Conjurer (manaSymbols/bar.png, für helle Schrift whitebar.png);
+// null -> per Code gezeichnet
 let flavorBarImg = null;
-export function setFlavorBarImage(img) { flavorBarImg = img || null; }
+let flavorBarLight = null;
+export function setFlavorBarImage(img, light = null) { flavorBarImg = img || null; flavorBarLight = light || null; }
 
-function drawFlavorBar(ctx, x, y, w, c) {
+function drawFlavorBar(ctx, x, y, w, c, light = false) {
+  if (light && flavorBarLight) {
+    // whitebar.png: 2 px hohe, halbtransparente weiße Linie
+    const bw = w * 0.96; const bh = Math.max(2, c * 0.06);
+    ctx.drawImage(flavorBarLight, x + (w - bw) / 2, y - bh / 2, bw, bh);
+    return;
+  }
   if (flavorBarImg) {
     // Card Conjurer: Breite 96 % der Textbreite, Höhe 0,03 × Kartenhöhe (2100); die Linie liegt
     // bei 44 % der Bildhöhe (Zeilen 7–15 von 26) -> dort auf y zentrieren

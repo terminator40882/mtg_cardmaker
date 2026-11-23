@@ -176,8 +176,23 @@ function seventhLayer(letter, mask, right) {
 
 // ---------- Stapel je Rahmenstil (Reihenfolge: oben -> unten, wie in Card Conjurer) ----------
 
-function m15Stack(p, { legendary, style, stamp, devoid, miracle, companion }) {
-  const L = (letter, mask, right = false) => m15Layer(letter, mask, right, style);
+/** Clear Textboxes (packM15ClearTextboxes): Typzeile und Textfeld halbtransparent über dem Artwork */
+function clearLayer(letter, mask, right) {
+  let l = letter.toUpperCase();
+  if (l.length > 1) l = 'L';
+  if (l === 'V' || l === 'C') l = 'A';
+  return { src: `${IMG}/m15/clearTextbox/${lc(l)}.png`, masks: [`${IMG}/m15/new/${lc(mask)}.png`, ...(right ? [RIGHT_HALF] : [])], clear: true };
+}
+
+/** Scryfall-Rahmeneffekt "inverted" (FNM-/Secret-Lair-Drucke): dunkles, durchscheinendes Textfeld, weiße Schrift */
+export function ccClearFrame(model) {
+  const { card, layout: L } = model;
+  return L.style === 'm15' && (!L.kind || L.kind === 'normal') && (card.frame_effects || []).includes('inverted')
+    && !packFor(model);
+}
+
+function m15Stack(p, { legendary, style, stamp, devoid, miracle, companion, clear = false }) {
+  const L = (letter, mask, right = false) => (clear && (mask === 'Type' || mask === 'Rules') ? clearLayer(letter, mask, right) : m15Layer(letter, mask, right, style));
   const out = [];
   if (legendary) {
     if (companion) {
@@ -420,6 +435,7 @@ export function ccLayers(model) {
       devoid: model.palettes[0].variant === 'devoid',
       miracle: fx.includes('miracle'),
       companion: fx.includes('companion'),
+      clear: ccClearFrame(model),
     });
   }
   if (L.style === 'm2003') return eighthStack(frameProperties(colors, face.mana_cost, type, power, 'Eighth'), fx.includes('colorshifted'));
@@ -437,14 +453,23 @@ const ART_BOUNDS = {
   abu: { x: 0.116, y: 0.1043, width: 0.7654, height: 0.441 },
 };
 
-/** Artwork-Box in Kartenkoordinaten (leicht vergrößert, damit keine Lücken entstehen) */
-export function ccArtBounds(model, L) {
+/**
+ * Artwork-Box in Kartenkoordinaten (leicht vergrößert, damit keine Lücken entstehen).
+ * forAlign: Fenster für die Bildregistrierung – bei Clear Textboxes das normale M15-Bildfenster
+ * (darunter liegen Typzeile und Textfeld über dem Artwork, das taugt nicht zum Vergleich).
+ */
+export function ccArtBounds(model, L, forAlign = false) {
   const pack = packFor(model);
   if (pack) {
     const b = pack.art;
     // Planeswalker: Artwork-Ausschnitt reicht nur bis zur Typzeile (darunter gespiegelt)
     const h = L.kind === 'pw' ? (L.artFit.y + L.artFit.h) / L.H - b.y : b.height;
     return { x: b.x * L.W - 2, y: b.y * L.H - 2, w: b.width * L.W + 4, h: h * L.H + 4 };
+  }
+  // Clear Textboxes: Artwork reicht bis unter das Textfeld (card.artBounds aus packM15ClearTextboxes)
+  if (ccClearFrame(model) && !forAlign) {
+    const b = { x: 0.062, y: 0.1129, width: 0.876, height: 0.8096 };
+    return { x: b.x * L.W - 2, y: b.y * L.H - 2, w: b.width * L.W + 4, h: b.height * L.H + 4 };
   }
   let key = L.style === 'm15' ? 'm15' : L.style === 'm2003' ? 'm2003' : L.variant === '97' ? 'retro97' : ABU_SETS.has(model.card.set) ? 'abu' : 'fourth';
   const b = ART_BOUNDS[key];
@@ -822,6 +847,7 @@ export function ccSymbolMap(symbolMap, codes, { oldColors = false } = {}) {
 
 /** Flavor-Trennlinie (Card Conjurer: manaSymbols/bar.png, Breite 96 % der Textbreite, Höhe 0,03 × Kartenhöhe) */
 export const CC_FLAVOR_BAR = '/cc/img/manaSymbols/bar.png';
+export const CC_FLAVOR_BAR_LIGHT = '/cc/img/manaSymbols/whitebar.png';
 
 /** Zusatzgrafiken für Saga- und Class-Text (Card Conjurer versionSaga.js / versionClass.js). */
 export async function ccColumnImages() {

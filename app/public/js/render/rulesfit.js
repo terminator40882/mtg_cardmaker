@@ -14,7 +14,7 @@ export function fitRulesVariant({ vp, textBox, baseOpts, rules, metrics, scan, W
   const baseM = { ...METRICS, ...(metrics || {}) };
   const withK = (k) => ({ ...(metrics || {}), lineHeight: baseM.lineHeight * k, paraGap: baseM.paraGap * k, flavorGap: baseM.flavorGap * k });
   const fScan = (scan.naturalWidth || scan.width) / W;
-  const scanExt = blockExtent(scan, textBox, W, H, fScan);
+  const scanExt = blockExtent(scan, textBox, W, H, fScan, true);
   const auto = fitText(ctx, vp, textBox, baseOpts).cap;
   const draw = (x, c) => {
     drawText(x, fitText(x, vp, textBox, { ...baseOpts, fixedCap: c.cap, metrics: withK(c.k) }), symbols, { flavorBar: false });

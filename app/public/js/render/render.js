@@ -9,10 +9,11 @@ import { loadImage, loadSymbols, ensureFonts } from './assets.js';
 import { luminance, mix } from './textures.js';
 import { drawSagaText, drawClassText, setColumnImages } from './columns.js';
 import { drawAdventure } from './adventure.js';
+import { historicWordings, expectedWording } from './wording.js';
 import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT, dfcIconUrl } from './dfc.js';
 import { renderLandscape } from './landscape.js';
 import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield, setPwIcons } from './planeswalker.js';
-import { ccStatus, ccLayers, loadLayers, drawLayers, prepareLayers, ccArtBounds, drawWatermark, ccPwIcons, matchFrameColors, ccSymbolMap, CC_FLAVOR_BAR, ccDfcFrame, ccColumnImages, ccLandscapeLayers } from './cc.js';
+import { ccStatus, ccLayers, loadLayers, drawLayers, prepareLayers, ccArtBounds, drawWatermark, ccPwIcons, matchFrameColors, ccSymbolMap, CC_FLAVOR_BAR, CC_FLAVOR_BAR_LIGHT, ccDfcFrame, ccColumnImages, ccLandscapeLayers, ccClearFrame } from './cc.js';
 import { getPool, toBitmap } from './pool.js';
 import { fitRulesVariant } from './rulesfit.js';
 import { alignArt, fitTextToScan, blockExtent, scanLines, boxEdges, sampleTextColor, cacheArtAlignment, hasArtAlignment } from './align.js';
@@ -402,12 +403,14 @@ export async function renderCard(canvas, model, deps) {
   const retroLayout = L.style === 'retro';
   // Standardländer: Reminder "({T}: Add {G}.)" steht nie auf der Karte –
   // stattdessen Flavortext oder ein großes Manasymbol.
-  const rulesParas = flags.basic ? [] : parseRules(face.oracle_text, {
-    showReminder: opts.showReminder,
-    keywords,
-    // Retro-Planeswalker zeigen Loyalitätskosten inline ("+1: ...")
-    planeswalker: flags.planeswalker && !retroLayout,
-  });
+  // Retro-Planeswalker zeigen Loyalitätskosten inline ("+1: ...")
+  const parseR = (t, showReminder = opts.showReminder) => parseRules(t, { showReminder, keywords, planeswalker: flags.planeswalker && !retroLayout });
+  // Ohne gedruckten Text (MTGJSON): Wortlaut früherer Regel-Epochen ableiten. Ohne Scan entscheidet
+  // das Erscheinungsdatum, mit Scan der Vergleich (unten, Textvarianten).
+  const wordings = !face.printed && opts.printedText !== false && !flags.basic ? historicWordings(face.oracle_text) : [];
+  const expected = expectedWording(wordings, model.card.released_at);
+  model.textVariant = expected?.label || null;
+  const rulesParas = flags.basic ? [] : parseR(expected ? expected.text : face.oracle_text);
   const flavorParas = opts.showFlavor ? parseFlavor(face.flavor_text) : [];
   const codes = symbolsIn(face.mana_cost, face.oracle_text,
     ...(model.card.card_faces || []).flatMap((f) => [f.mana_cost, f.oracle_text]));
@@ -423,7 +426,8 @@ export async function renderCard(canvas, model, deps) {
     ccDefs ? loadLayers(ccDefs) : null,
     opts.alignArt && opts.scanUrl ? loadImage(opts.scanUrl).catch(() => null) : null,
     ensureFonts(),
-    (ccOk ? loadImage(CC_FLAVOR_BAR).catch(() => null) : Promise.resolve(null)).then(setFlavorBarImage),
+    (ccOk ? Promise.all([CC_FLAVOR_BAR, CC_FLAVOR_BAR_LIGHT].map((u) => loadImage(u).catch(() => null))) : Promise.resolve([]))
+      .then(([dark, light]) => setFlavorBarImage(dark, light)),
     ccOk ? loadOfficialSetSymbol(model) : null,
   ]);
   perfMark('loaded');
@@ -450,25 +454,33 @@ export async function renderCard(canvas, model, deps) {
   let rulesVariants = null;
   if (!['adventure', 'saga', 'class', 'pw', 'split', 'battle'].includes(L.kind) && !basicSym && parasEarly.length
     && !opts.fontCap && opts.alignArt && scan) {
-    // Varianten: Oracle-Text enthält oft Reminder-Text, der auf diesem Druck fehlt
-    rulesVariants = [parasEarly];
-    if (opts.showReminder && /\(/.test(face.oracle_text || '')) {
-      const noRem = parseRules(face.oracle_text, { showReminder: false, keywords, planeswalker: flags.planeswalker && !retroLayout });
-      rulesVariants.push([...noRem, ...flavorParas]);
+    // Varianten: Oracle-Text enthält oft Reminder-Text, der auf diesem Druck fehlt; ohne gedruckten
+    // Text außerdem die Wortlaute früherer Epochen (die nach Datum erwartete zuerst)
+    const texts = [{ label: expected?.label || null, text: expected ? expected.text : face.oracle_text }];
+    for (const v of [{ label: null, text: face.oracle_text }, ...wordings]) {
+      if (!texts.some((t) => t.text === v.text)) texts.push(v);
+    }
+    rulesVariants = [];
+    for (const t of texts) {
+      rulesVariants.push({ label: t.label, paras: t === texts[0] ? parasEarly : [...parseR(t.text), ...flavorParas] });
+      if (opts.showReminder && /\(/.test(t.text || '')) {
+        rulesVariants.push({ label: t.label, paras: [...parseR(t.text, false), ...flavorParas] });
+      }
     }
   }
-  const rulesKey = (vi) => `${opts.scanUrl}|${model.faceIdx}|${L.style}${L.variant || ''}|${opts.showFlavor}|${vi}|${model.face.oracle_text}`;
+  const rulesKey = (vi) => `${opts.scanUrl}|${model.faceIdx}|${L.style}${L.variant || ''}|${opts.showFlavor}|${vi}|${rulesVariants?.[vi]?.label}|${model.face.oracle_text}`;
   const pool = opts.workers === false ? null : await getPool(getFontScales());
   let rulesJobs = null;
   let alignJob = null;
-  const alignBox = cc ? ccArtBounds(model, L) : null;
+  const alignBox = cc ? ccArtBounds(model, L, true) : null;
+  const artClip = cc ? ccArtBounds(model, L) : null;
   const alignKey = `${opts.artUrl}|${opts.scanUrl}|${L.style}${L.variant || ''}`;
   if (pool) {
     const scanBm = scan ? await toBitmap(scan) : null;
     if (rulesVariants && scanBm) {
       const symBm = new Map();
       await Promise.all([...symbols].map(async ([k, img]) => symBm.set(k, await toBitmap(img, 256))));
-      rulesJobs = rulesVariants.map((vp, vi) => pool.run('rules', {
+      rulesJobs = rulesVariants.map(({ paras: vp }, vi) => pool.run('rules', {
         vp, textBox: textBoxEarly, baseOpts: rulesBase, rules: L.rules, metrics: L.metrics,
         scan: scanBm, W, H, symbols: symBm, key: rulesKey(vi),
       }).catch(() => null));
@@ -522,13 +534,13 @@ export async function renderCard(canvas, model, deps) {
     model.artAligned = !!rect;
     const adj = rect ? { ...opts.art, rect } : opts.art;
     if (model.palettes[0].variant === 'devoid') drawArt(ctx, art, { x: 0, y: 0, w: W, h: H }, adj, box);
-    else drawArt(ctx, art, L.kind === 'pw' ? L.art : box, adj, box);
+    else drawArt(ctx, art, L.kind === 'pw' ? L.art : artClip, adj, box);
     perfMark('align+art');
     drawLayers(ctx, cc, W, H, scale, { borderColor: model.borderKey !== 'black' ? model.borderColor : null });
     perfMark('layers');
     // Farben der Rahmenbereiche an den gedruckten Scan angleichen (Druckfarben sind dunkler/satter)
     if (opts.alignArt && opts.matchColors !== false && scan && model.artAligned) {
-      matchFrameColors(ctx, cc, scan, W, H, [box], colorRects);
+      matchFrameColors(ctx, cc, scan, W, H, [artClip], colorRects);
     }
     perfMark('colors');
     if (opts.watermark !== false) await drawWatermark(ctx, model, L, scale);
@@ -560,10 +572,17 @@ export async function renderCard(canvas, model, deps) {
   // Schriftfarbe von Name/Typzeile aus dem Scan (z. B. weiße Titel mit Schatten auf hellen Ice-Age-Rahmen)
   const sampleHead = (t, fam, cap, x, base, maxW) => (opts.alignArt && scan && opts.matchColors !== false
     ? sampleTextColor(scan, W, H, { x: x - 10, y: base - cap * 1.6, w: Math.min(maxW, 900) + 20, h: cap * 2.1 },
-      (c) => drawFittedLine(c, t, fam, cap, x, base, maxW, { color: '#fff' })) : null);
+      (c) => drawFittedLine(c, t, fam, cap, x, base, maxW, { color: '#fff' }), { maxLightBg: retro ? 256 : 140 }) : null);
   const sampledName = sampleHead(smartQuotes(face.name), L.nameText.family, L.nameText.cap, L.nameText.x, L.nameText.baseline, L.nameText.right - L.nameText.x - 200);
   if (sampledName) headColor = sampledName;
   const headShadow = (retro || darkBack) && luminance(headColor) > 0.45 ? 'rgba(0,0,0,0.9)' : null;
+  // Typzeile eigens: bei Clear Textboxes ("inverted") liegt sie dunkel über dem Artwork -> weiße Schrift
+  // mit Schatten (packM15ClearTextboxes), sonst wie der Name; der Scan entscheidet, wenn vorhanden
+  const clear = !!cc && ccClearFrame(model);
+  let typeColor = clear ? '#ffffff' : headColor;
+  const sampledType = sampleHead(face.type_line, L.typeText.family, L.typeText.cap, L.typeText.x, L.typeText.baseline, L.setSym.right - L.typeText.x - 200);
+  if (sampledType && !clear) typeColor = sampledType;
+  const typeShadow = luminance(typeColor) > 0.45 && (retro || darkBack || clear || luminance(headColor) <= 0.45) ? 'rgba(0,0,0,0.9)' : headShadow;
 
   perfMark('frame');
   // Name + Manakosten
@@ -588,7 +607,8 @@ export async function renderCard(canvas, model, deps) {
   // Farbindikator (Punkt vor der Typzeile, z. B. Rückseiten von DFCs) – Card Conjurer m15/ciPips
   const ciShift = face.color_indicator && L.style !== 'retro' ? await drawColorIndicator(ctx, face.color_indicator, T) : 0;
   drawFittedLine(ctx, face.type_line, T.family, T.cap, T.x + ciShift, T.baseline,
-    Math.min(T.right, L.setSym.right - (symW ? symW + 24 : 0)) - T.x - ciShift, { color: headColor, shadow: headShadow });
+    Math.min(T.right, L.setSym.right - (symW ? symW + 24 : 0)) - T.x - ciShift, { color: typeColor, shadow: typeShadow,
+      ...(clear ? { shadowDx: 2, shadowDy: 2 } : {}) });
 
   perfMark('head');
   // Regeltext
@@ -711,22 +731,27 @@ export async function renderCard(canvas, model, deps) {
     };
     let textOpts = baseOpts;
     let textParas = paras;
+    let textChecked = false;
     if (rulesVariants) {
       // Ergebnisse der Worker (parallel berechnet) bzw. lokal, falls keine Worker verfügbar
       const results = rulesJobs ? await Promise.all(rulesJobs) : rulesVariants.map(() => null);
       let best = null;
-      rulesVariants.forEach((vp, vi) => {
+      rulesVariants.forEach(({ paras: vp, label }, vi) => {
         const r = results[vi] || fitRulesVariant({ vp, textBox, baseOpts, rules: L.rules, metrics: L.metrics, scan, W, H, symbols, key: rulesKey(vi) });
-        if (globalThis.__fitDebug) console.log('variant', vi, JSON.stringify(r.fit), r.total);
-        if (!best || r.total < best.total - 4) best = { total: r.total, o: r.o, vp };
+        if (globalThis.__fitDebug) console.log('variant', vi, label, JSON.stringify(r.fit), r.total);
+        if (!best || r.total < best.total - 4) best = { total: r.total, o: r.o, vp, label };
       });
       textOpts = best.o;
       textParas = best.vp;
+      model.textVariant = best.label;
+      // Wortlaut am Scan geprüft -> wie gedruckter Text behandeln (Zeilenlayout darf übernommen werden;
+      // passt der Text doch nicht, verwirft layoutFromLines das Ergebnis über die Zeilenlängen)
+      textChecked = true;
     }
     let lay = fitText(ctx, textParas, textBox, textOpts);
     // Original-Layout übernehmen: Zeilenumbrüche, Grundlinien und Ränder wie auf dem Scan –
     // nur, wenn der Text nicht angepasst wurde (gedruckter Text, Reminder + Flavor an, Größe automatisch)
-    if (scan && opts.alignArt && opts.copyLayout !== false && face.printed && opts.showReminder && opts.showFlavor
+    if (scan && opts.alignArt && opts.copyLayout !== false && (face.printed || textChecked) && opts.showReminder && opts.showFlavor
       && !opts.fontCap && !(flags.planeswalker && !retroLayout)) {
       // Fenster knapp um die Textspalte (ohne Rahmenkanten des Textfelds)
       const region = { x: textBox.x - 10, y: textBox.y - 24, w: textBox.w + 18, h: textBox.h + 36 };
@@ -770,7 +795,17 @@ export async function renderCard(canvas, model, deps) {
       if (copied && copied.worst < 0.12) { lay = copied; model.layoutCopied = true; }
     }
     if (flags.planeswalker && !retroLayout) drawPlaneswalkerRows(ctx, lay, L);
-    drawText(ctx, lay, symbols, { flavorBar: opts.flavorBar !== false });
+    // Schriftfarbe des Regeltexts: weiß mit Schatten bei Clear Textboxes; mit Scan wird gemessen
+    // (helle Schrift auf dunklem Textfeld, z. B. FNM-/Secret-Lair-Drucke)
+    let rulesColor = clear ? '#ffffff' : null;
+    if (!clear && opts.alignArt && scan && opts.matchColors !== false) {
+      const sampled = sampleTextColor(scan, W, H, { x: textBox.x - 10, y: textBox.y - 10, w: textBox.w + 20, h: textBox.h + 20 },
+        (c) => drawText(c, lay, symbols, { color: '#fff', flavorBar: false }), { maxLightBg: 140 });
+      if (sampled) rulesColor = luminance(sampled) > 0.55 ? '#ffffff' : null;
+    }
+    drawText(ctx, lay, symbols, { flavorBar: opts.flavorBar !== false,
+      ...(rulesColor ? { color: rulesColor, shadow: 'rgba(0,0,0,0.85)' } : {}) });
+    model.rulesColor = rulesColor;
     model.textCap = lay.cap;
   }
 

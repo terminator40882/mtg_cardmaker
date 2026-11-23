@@ -16,7 +16,7 @@ import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwSh
 import { ccStatus, ccLayers, loadLayers, drawLayers, prepareLayers, ccArtBounds, drawWatermark, ccPwIcons, matchFrameColors, ccSymbolMap, CC_FLAVOR_BAR, CC_FLAVOR_BAR_LIGHT, ccDfcFrame, ccColumnImages, ccLandscapeLayers, ccClearFrame } from './cc.js';
 import { getPool, toBitmap } from './pool.js';
 import { fitRulesVariant } from './rulesfit.js';
-import { alignArt, fitTextToScan, blockExtent, scanLines, boxEdges, sampleTextColor, cacheArtAlignment, hasArtAlignment } from './align.js';
+import { alignArt, fitTextToScan, blockExtent, scanLines, boxEdges, sampleTextColor, cacheArtAlignment, hasArtAlignment, inkSimilarity } from './align.js';
 
 export { W, H };
 
@@ -627,6 +627,57 @@ export async function renderCard(canvas, model, deps) {
     // Platz für die kleine Rückseiten-P/T rechts über der P/T-Box
     ptZone = { x: L.ptPlate.x + L.ptPlate.w - 120, y: L.ptPlate.y - 80, tolerance: 60 };
   }
+  /**
+   * Textzeilen des Originals im Scan (Grundlinie, linke/rechte Kante), in das eigene Textfeld
+   * umgerechnet; null, wenn keine erkennbar.
+   */
+  const originalLines = (textBox) => {
+    // Fenster knapp um die Textspalte (ohne Rahmenkanten des Textfelds)
+    const region = { x: textBox.x - 10, y: textBox.y - 24, w: textBox.w + 18, h: textBox.h + 36 };
+    const found = scanLines(scan, region, W, H, L.ptPlate && (flags.pt || flags.planeswalker) ? { x: L.ptPlate.x - 12, y: L.ptPlate.y - 8 } : null);
+    // nur echte Textzeilen: beginnen in der Textspalte, liegen im Textfeld
+    let lines = found && found.filter((l) => l.left < region.x + region.w * 0.6 && l.left >= textBox.x - 24
+      && l.base <= textBox.y + textBox.h + 8 && l.base > textBox.y);
+    if (!lines || !lines.length) return null;
+    // Rahmen weichen minimal ab (Druck/Scan vs. Card-Conjurer-Grafik): Zeilen vom Textfeld des
+    // Scans in das eigene Textfeld umrechnen, damit die Abstände zu den Kanten gleich bleiben
+    const eo = boxEdges(scan, W, H, L.box);
+    const eu = boxEdges(ctx.canvas, W, H, L.box);
+    if (eo && eu && Math.abs(eo.R - eo.L - (eu.R - eu.L)) < 40 && Math.abs(eo.B - eo.T - (eu.B - eu.T)) < 40) {
+      const sx = (eu.R - eu.L) / (eo.R - eo.L); const sy = (eu.B - eu.T) / (eo.B - eo.T);
+      // nur plausible Abbildungen (Kantenerkennung kann auf strukturierten Textfeldern danebenliegen)
+      if (Math.abs(sx - 1) < 0.03 && Math.abs(sy - 1) < 0.03 && Math.abs(eu.L - eo.L) < 15 && Math.abs(eu.T - eo.T) < 15) {
+        const mx = (x) => eu.L + (x - eo.L) * sx; const my = (y) => eu.T + (y - eo.T) * sy;
+        lines = lines.map((l) => ({ ...l, base: my(l.base), left: mx(l.left), right: mx(l.right) }));
+        model.boxMap = { eo, eu };
+      }
+    }
+    // Zeilen, die mit einem (hellen) Manasymbol beginnen, an die gemeinsame linke Kante setzen
+    if (lines.length > 1) {
+      const lefts = lines.map((l) => l.left).sort((a, b) => a - b);
+      const common = lefts[Math.floor(lefts.length / 2)];
+      lines = lines.map((l) => (l.left > common && l.left - common < 30 ? { ...l, left: common } : l));
+    }
+    if (globalThis.__fitDebug) console.log('copy', JSON.stringify(lines.map((l) => [Math.round(l.base), Math.round(l.left), Math.round(l.right)])));
+    return lines;
+  };
+  /** Layout mit den Zeilen des Originals (Umbrüche, Grundlinien, Ränder); worst = Abweichung der Zeilenlängen. */
+  const copyLines = (paras, lay, lines) => {
+    let copied = layoutFromLines(ctx, paras, lay.cap, lines, lay.box || L.text, lay.M);
+    // Schriftgröße aus den gemessenen Zeilenlängen nachführen, wenn die Breiten nicht passen
+    // obere Grenze aus dem kleinsten Zeilenabstand im Scan (sonst überlappen die Zeilen)
+    const pitches = lines.slice(1).map((l, i) => l.base - lines[i].base).filter((d) => d > 5);
+    const capLimit = pitches.length ? Math.min(...pitches) / 1.42 : Infinity;
+    if (copied && copied.cap > capLimit) copied = layoutFromLines(ctx, paras, capLimit, lines, lay.box || L.text, lay.M) || copied;
+    for (let it = 0; it < 3 && copied && copied.worst >= 0.04; it++) {
+      const c2 = Math.min(capLimit, copied.cap * Math.max(0.8, Math.min(1.3, copied.widthRatio)));
+      const alt = layoutFromLines(ctx, paras, c2, lines, lay.box || L.text, lay.M);
+      if (!alt || alt.worst >= copied.worst) break;
+      copied = alt;
+    }
+    return copied;
+  };
+
   /** Zeichnet Saga/Class/Adventure-Text; Schriftgröße per Vergleich mit dem Scan (wie beim Regeltext). */
   const fitColumnsToScan = (draw, tag) => {
     if (opts.fontCap || !opts.alignArt || !scan) return draw(ctx, model);
@@ -732,67 +783,44 @@ export async function renderCard(canvas, model, deps) {
     let textOpts = baseOpts;
     let textParas = paras;
     let textChecked = false;
+    // Zeilen des Originals aus dem Scan (für die Übernahme des Zeilenlayouts und die Wortlaut-Wahl)
+    const lines = scan && opts.alignArt && !(flags.planeswalker && !retroLayout) ? originalLines(textBox) : null;
+    const copyAllowed = opts.copyLayout !== false && opts.showReminder && opts.showFlavor && !opts.fontCap;
+    let lay = null;
     if (rulesVariants) {
       // Ergebnisse der Worker (parallel berechnet) bzw. lokal, falls keine Worker verfügbar
       const results = rulesJobs ? await Promise.all(rulesJobs) : rulesVariants.map(() => null);
+      // Wortlaut/Reminder-Variante wählen: jede Variante im Zeilenlayout des Scans (falls übernehmbar)
+      // zeichnen und die Schrift pixelweise mit dem Scan vergleichen; ohne Zeilen zählt die
+      // Bewertung aus fitRulesVariant (erste Zeile + Blocklage). Die erste Variante (gedruckter bzw.
+      // nach Datum erwarteter Text) gewinnt bei Gleichstand.
+      const region = { x: textBox.x - 10, y: textBox.y - 10, w: textBox.w + 20, h: textBox.h + 20 };
       let best = null;
       rulesVariants.forEach(({ paras: vp, label }, vi) => {
         const r = results[vi] || fitRulesVariant({ vp, textBox, baseOpts, rules: L.rules, metrics: L.metrics, scan, W, H, symbols, key: rulesKey(vi) });
-        if (globalThis.__fitDebug) console.log('variant', vi, label, JSON.stringify(r.fit), r.total);
-        if (!best || r.total < best.total - 4) best = { total: r.total, o: r.o, vp, label };
+        const auto = fitText(ctx, vp, textBox, r.o);
+        const copied = lines ? copyLines(vp, auto, lines) : null;
+        const cand = copied && copied.worst < 0.12 ? copied : auto;
+        const sim = rulesVariants.length > 1 ? inkSimilarity(scan, region, W, H, (x) => drawText(x, cand, symbols, { flavorBar: false })) : 0;
+        if (globalThis.__fitDebug) console.log('variant', vi, label, JSON.stringify(r.fit), r.total, 'sim', sim.toFixed(3), 'worst', copied && copied.worst.toFixed(3));
+        const better = !best || (lines ? sim > best.sim + 0.02 : r.total < best.total - 4);
+        if (better) best = { total: r.total, sim, o: r.o, vp, label, auto, copied };
       });
       textOpts = best.o;
       textParas = best.vp;
       model.textVariant = best.label;
-      // Wortlaut am Scan geprüft -> wie gedruckter Text behandeln (Zeilenlayout darf übernommen werden;
-      // passt der Text doch nicht, verwirft layoutFromLines das Ergebnis über die Zeilenlängen)
+      // Wortlaut am Scan geprüft -> wie gedruckter Text behandeln (Zeilenlayout darf übernommen werden)
       textChecked = true;
-    }
-    let lay = fitText(ctx, textParas, textBox, textOpts);
-    // Original-Layout übernehmen: Zeilenumbrüche, Grundlinien und Ränder wie auf dem Scan –
-    // nur, wenn der Text nicht angepasst wurde (gedruckter Text, Reminder + Flavor an, Größe automatisch)
-    if (scan && opts.alignArt && opts.copyLayout !== false && (face.printed || textChecked) && opts.showReminder && opts.showFlavor
-      && !opts.fontCap && !(flags.planeswalker && !retroLayout)) {
-      // Fenster knapp um die Textspalte (ohne Rahmenkanten des Textfelds)
-      const region = { x: textBox.x - 10, y: textBox.y - 24, w: textBox.w + 18, h: textBox.h + 36 };
-      const found = scanLines(scan, region, W, H, L.ptPlate && (flags.pt || flags.planeswalker) ? { x: L.ptPlate.x - 12, y: L.ptPlate.y - 8 } : null);
-      // nur echte Textzeilen: beginnen in der Textspalte, liegen im Textfeld
-      let lines = found && found.filter((l) => l.left < region.x + region.w * 0.6 && l.left >= textBox.x - 24
-        && l.base <= textBox.y + textBox.h + 8 && l.base > textBox.y);
-      // Rahmen weichen minimal ab (Druck/Scan vs. Card-Conjurer-Grafik): Zeilen vom Textfeld des
-      // Scans in das eigene Textfeld umrechnen, damit die Abstände zu den Kanten gleich bleiben
-      const eo = lines && boxEdges(scan, W, H, L.box);
-      const eu = lines && boxEdges(ctx.canvas, W, H, L.box);
-      if (eo && eu && Math.abs(eo.R - eo.L - (eu.R - eu.L)) < 40 && Math.abs(eo.B - eo.T - (eu.B - eu.T)) < 40) {
-        const sx = (eu.R - eu.L) / (eo.R - eo.L); const sy = (eu.B - eu.T) / (eo.B - eo.T);
-        // nur plausible Abbildungen (Kantenerkennung kann auf strukturierten Textfeldern danebenliegen)
-        if (Math.abs(sx - 1) < 0.03 && Math.abs(sy - 1) < 0.03 && Math.abs(eu.L - eo.L) < 15 && Math.abs(eu.T - eo.T) < 15) {
-          const mx = (x) => eu.L + (x - eo.L) * sx; const my = (y) => eu.T + (y - eo.T) * sy;
-          lines = lines.map((l) => ({ ...l, base: my(l.base), left: mx(l.left), right: mx(l.right) }));
-          model.boxMap = { eo, eu };
-        }
+      lay = best.auto;
+      if (copyAllowed && best.copied && best.copied.worst < 0.12) { lay = best.copied; model.layoutCopied = true; }
+    } else {
+      lay = fitText(ctx, textParas, textBox, textOpts);
+      // Original-Layout übernehmen: Zeilenumbrüche, Grundlinien und Ränder wie auf dem Scan –
+      // nur, wenn der Text nicht angepasst wurde (gedruckter Text, Reminder + Flavor an, Größe automatisch)
+      if (lines && copyAllowed && face.printed) {
+        const copied = copyLines(textParas, lay, lines);
+        if (copied && copied.worst < 0.12) { lay = copied; model.layoutCopied = true; }
       }
-      // Zeilen, die mit einem (hellen) Manasymbol beginnen, an die gemeinsame linke Kante setzen
-      if (lines && lines.length > 1) {
-        const lefts = lines.map((l) => l.left).sort((a, b) => a - b);
-        const common = lefts[Math.floor(lefts.length / 2)];
-        lines = lines.map((l) => (l.left > common && l.left - common < 30 ? { ...l, left: common } : l));
-      }
-      let copied = lines && layoutFromLines(ctx, textParas, lay.cap, lines, textBox, lay.M);
-      // Schriftgröße aus den gemessenen Zeilenlängen nachführen, wenn die Breiten nicht passen
-      // obere Grenze aus dem kleinsten Zeilenabstand im Scan (sonst überlappen die Zeilen)
-      const pitches = (lines || []).slice(1).map((l, i) => l.base - lines[i].base).filter((d) => d > 5);
-      const capLimit = pitches.length ? Math.min(...pitches) / 1.42 : Infinity;
-      if (copied && copied.cap > capLimit) copied = layoutFromLines(ctx, textParas, capLimit, lines, textBox, lay.M) || copied;
-      for (let it = 0; it < 3 && copied && copied.worst >= 0.04; it++) {
-        const c2 = Math.min(capLimit, copied.cap * Math.max(0.8, Math.min(1.3, copied.widthRatio)));
-        const alt = layoutFromLines(ctx, textParas, c2, lines, textBox, lay.M);
-        if (!alt || alt.worst >= copied.worst) break;
-        copied = alt;
-      }
-      if (globalThis.__fitDebug) console.log('boxmap', JSON.stringify(model.boxMap || null));
-      if (globalThis.__fitDebug) console.log('copy', JSON.stringify((lines || []).map((l) => [Math.round(l.base), Math.round(l.left), Math.round(l.right)])), textParas.length, copied && copied.worst);
-      if (copied && copied.worst < 0.12) { lay = copied; model.layoutCopied = true; }
     }
     if (flags.planeswalker && !retroLayout) drawPlaneswalkerRows(ctx, lay, L);
     // Schriftfarbe des Regeltexts: weiß mit Schatten bei Clear Textboxes; mit Scan wird gemessen

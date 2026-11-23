@@ -544,3 +544,48 @@ export { solve as solveArtAlignment };
 /** Ergebnis einer (z. B. im Worker berechneten) Ausrichtung in den Cache übernehmen. */
 export function cacheArtAlignment(key, res) { if (key) cache.set(key, res); }
 export const hasArtAlignment = (key) => cache.has(key);
+
+// ---------- Wortlaut-Vergleich mit dem Scan ----------
+
+/** Kastenfilter (Radius r) über ein Float-Raster – macht den Vergleich tolerant gegen 1–2 px Versatz. */
+function boxBlur(src, w, h, r) {
+  const tmp = new Float32Array(w * h); const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    let acc = 0; const o = y * w;
+    for (let x = -r; x < w + r; x++) {
+      if (x + r < w && x + r >= 0) acc += src[o + x + r];
+      if (x - r - 1 >= 0 && x - r - 1 < w) acc -= src[o + x - r - 1];
+      if (x >= 0 && x < w) tmp[o + x] = acc;
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let acc = 0;
+    for (let y = -r; y < h + r; y++) {
+      if (y + r < h && y + r >= 0) acc += tmp[(y + r) * w + x];
+      if (y - r - 1 >= 0 && y - r - 1 < h) acc -= tmp[(y - r - 1) * w + x];
+      if (y >= 0 && y < h) out[y * w + x] = acc;
+    }
+  }
+  return out;
+}
+
+/**
+ * Ähnlichkeit (Korrelation −1..1) zwischen der Schrift im Scan und einem gezeichneten Textlayout
+ * im Ausschnitt box. draw(ctx) zeichnet in Kartenkoordinaten. Dient zur Wahl des Wortlauts:
+ * mit dem vom Scan übernommenen Zeilenlayout liegen gleiche Wörter deckungsgleich übereinander.
+ */
+export function inkSimilarity(scan, box, W, H, draw) {
+  if (!scan) return -1;
+  const f = (scan.naturalWidth || scan.width) / W;
+  const a = inkMask(scan, box, f, W, H, 110, true);
+  const b = renderInk(draw, box, f);
+  if (!b || a.w !== b.w || a.h !== b.h) return -1;
+  const A = boxBlur(a.dk, a.w, a.h, 2); const B = boxBlur(b.dk, b.w, b.h, 2);
+  const n = A.length;
+  let ma = 0; let mb = 0;
+  for (let i = 0; i < n; i++) { ma += A[i]; mb += B[i]; }
+  ma /= n; mb /= n;
+  let sab = 0; let saa = 0; let sbb = 0;
+  for (let i = 0; i < n; i++) { const da = A[i] - ma; const db = B[i] - mb; sab += da * db; saa += da * da; sbb += db * db; }
+  return saa > 0 && sbb > 0 ? sab / Math.sqrt(saa * sbb) : -1;
+}

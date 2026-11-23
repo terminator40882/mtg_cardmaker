@@ -21,8 +21,8 @@ export const LAYOUTS = {
     // längste Regelzeile endet bei ≈1369
     text: { x: 129, y: 1326, w: 1248, h: 606 },
     ptPlate: { x: 1167, y: 1875, w: 250, h: 100 },
-    nameText: { x: 125, right: 1383, baseline: 185, cap: 55, family: 'CMTitle' },
-    typeText: { x: 124, right: 1383, baseline: 1263, cap: 49, family: 'CMTitle' },
+    nameText: { x: 125, right: 1383, baseline: 185, cap: 56, family: 'CMTitle' },
+    typeText: { x: 124, right: 1383, baseline: 1263, cap: 46.7, family: 'CMTitle' }, // an 33 Scans nachgemessen
     // Manakosten und Set-Symbol an 33 Scans nachgemessen (Kreis Ø 72 px, Abstand 4 px, rechte Kante 1387;
     // Set-Symbol inkl. Kontur 88 px hoch, rechte Kante 1383)
     cost: { d: 72, gap: 4, right: 1387, cy: 154, shadow: { dx: -3, dy: 4 } },
@@ -47,8 +47,8 @@ export const LAYOUTS = {
     box: { x: 109, y: 1310, w: 1262, h: 584 },
     text: { x: 152, y: 1334, w: 1202, h: 536 }, // an 22 Scans (M10–THS) nachgemessen
     ptPlate: { x: 1114, y: 1876, w: 275, h: 94 },
-    nameText: { x: 133, right: 1370, baseline: 197, cap: 56, family: 'CMMatrix' },
-    typeText: { x: 133, right: 1370, baseline: 1265, cap: 50, family: 'CMMatrix' },
+    nameText: { x: 133, right: 1370, baseline: 197, cap: 54.2, family: 'CMMatrix' },
+    typeText: { x: 133, right: 1370, baseline: 1263, cap: 43.9, family: 'CMMatrix' }, // an 22 Scans nachgemessen
     // an 22 Scans (M10–THS) nachgemessen: Kreis Ø 63 px, deutlicher Schatten unten links
     cost: { d: 63, gap: 6, right: 1371, cy: 173, shadow: { dx: -4, dy: 6 } },
     setSym: { right: 1386, cy: 1241, h: 80, maxW: 160 },
@@ -110,7 +110,7 @@ LAYOUTS.pw = {
   namePlate: { x: 83, y: 61, w: 1334, h: 133 },
   typePlate: { x: 83, y: 1179, w: 1334, h: 116 },
   nameText: { x: 121, right: 1386, baseline: 156, cap: 56, family: 'CMTitle' },
-  typeText: { x: 124, right: 1386, baseline: 1258, cap: 49, family: 'CMTitle' },
+  typeText: { x: 124, right: 1386, baseline: 1258, cap: 46.7, family: 'CMTitle' },
   cost: { d: 72, gap: 4, right: 1388, cy: 134, shadow: { dx: -3, dy: 4 } }, // an Planeswalker-Scans nachgemessen
   setSym: { right: 1394, cy: 1238, h: 74, maxW: 150 },
   pwBox: { x: 174, y: 1310, w: 1212, h: 576, r: 30 },
@@ -124,7 +124,7 @@ LAYOUTS.pw4 = {
   ...LAYOUTS.pw,
   typePlate: { x: 83, y: 1042, w: 1334, h: 110 },
   artFit: { x: 95, y: 212, w: 1310, h: 830 },
-  typeText: { x: 124, right: 1386, baseline: 1120, cap: 49, family: 'CMTitle' },
+  typeText: { x: 124, right: 1386, baseline: 1120, cap: 46.7, family: 'CMTitle' },
   setSym: { right: 1394, cy: 1097, h: 74, maxW: 150 },
   pwBox: { x: 174, y: 1175, w: 1212, h: 712, r: 30 },
   text: { x: 268, y: 1175, w: 1104, h: 712 },
@@ -139,7 +139,7 @@ LAYOUTS.saga = {
   box: { x: 122, y: 233, w: 629, h: 1500 },
   text: { x: 204, y: 233, w: 530, h: 1500 },
   typePlate: { x: 98, y: 1789, w: 1304, h: 111 },
-  typeText: { x: 124, right: 1383, baseline: 1866, cap: 49, family: 'CMTitle' },
+  typeText: { x: 124, right: 1383, baseline: 1866, cap: 46.7, family: 'CMTitle' },
   setSym: { right: 1384, cy: 1845, h: 74, maxW: 150 },
   saga: { markerX: 124, trackX: 122, reminderX: 138, reminderH: 367 },
   rules: { maxCap: 48.1, minCap: 16, step: 48.1 / 18 },
@@ -153,7 +153,7 @@ LAYOUTS.class = {
   box: { x: 733, y: 233, w: 667, h: 1534 },
   text: { x: 756, y: 233, w: 626, h: 1534 },
   typePlate: { x: 98, y: 1789, w: 1304, h: 111 },
-  typeText: { x: 124, right: 1383, baseline: 1866, cap: 49, family: 'CMTitle' },
+  typeText: { x: 124, right: 1383, baseline: 1866, cap: 46.7, family: 'CMTitle' },
   setSym: { right: 1384, cy: 1845, h: 74, maxW: 150 },
   classBar: { h: 94 },
   rules: { maxCap: 48.1, minCap: 16, step: 48.1 / 18 },

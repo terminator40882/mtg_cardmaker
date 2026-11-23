@@ -21,6 +21,11 @@ export function loadImage(url) {
   return images.get(url);
 }
 
+/** Entfernt ein Bild aus dem Cache (z. B. ein gelöschtes eigenes Artwork). */
+export function forgetImage(url) {
+  images.delete(url);
+}
+
 /** Lädt alle Symbole (z.B. "{2}", "{W/U}", "{T}") eines Textes vor. */
 export async function loadSymbols(codes, symbolMap) {
   const out = new Map();

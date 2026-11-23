@@ -35,6 +35,13 @@ Danach im Browser: <http://localhost:8080> (Direktlink: `http://localhost:8080/?
   - Zeilenabstand 1,545 × Versalhöhe, Absatzabstand 0,62 ×, Flavor-Abstand 1,26 ×, Trennlinie.
   - Vertikal zentriert; reicht der Block bis auf Höhe der P/T-Box, rückt er nach oben (wie gedruckt).
   - Mana-Symbole im Text, kursive Fähigkeitswörter/Reminder-Texte, typografische Anführungszeichen.
+- **Artwork tauschen** (Bereich „Artwork“ nach Auswahl einer Version): Klick auf die Vorschau lädt das
+  Original-Artwork (Scryfall-Crop) herunter, z. B. zum Hochskalieren. Daneben nimmt eine Box per Drag & Drop oder
+  Klick (Dateiauswahl) ein eigenes, z. B. hochskaliertes Artwork auf, das dann für die Karte verwendet wird
+  (je Druck und Kartenseite, auch im PNG-Export). Die Box zeigt das eingefügte Bild mit Auflösung und
+  Faktor gegenüber dem Original; über „×“ wird es wieder entfernt. Die Bilder bleiben im Browser (IndexedDB)
+  und überstehen ein Neuladen. Die Ausrichtung am Scan ist auflösungsunabhängig – das Bild sollte nur denselben
+  Ausschnitt (Seitenverhältnis) wie das Original haben, sonst erscheint ein Hinweis.
 - **Optionen**: Flavortext an/aus, Reminder-Text an/aus, feste Schriftgröße, Artwork zoomen/verschieben,
   Fußzeilentext, PNG-Export in 1500×2100 (600 dpi) oder 2010×2814 (≈800 dpi).
 
@@ -117,7 +124,8 @@ Bereich aus; pro Karte entsteht ein Bild Nachbau | Original | Differenz.
 Alle Abhängigkeiten liegen lokal im Image. Der Browser spricht nur mit dem lokalen Server;
 dieser lädt Kartendaten, Artworks und Symbole von Scryfall und cached sie im Volume `cardmaker-data`.
 
-Für den geplanten Upscaling-Schritt ist `GET /api/art/:id` der Einhängepunkt.
+Für einen serverseitigen Upscaling-Schritt ist `GET /api/art/:id` der Einhängepunkt; eigene Artworks werden
+dagegen im Browser hinterlegt (`public/js/customart.js`).
 
 ## Hinweise
 

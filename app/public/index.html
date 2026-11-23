@@ -89,6 +89,20 @@
         </fieldset>
         <fieldset>
           <legend>Artwork</legend>
+          <div class="art-io">
+            <button type="button" id="art-thumb" class="art-thumb" title="Original-Artwork (Scryfall) herunterladen">
+              <img id="art-thumb-img" alt="Original-Artwork">
+              <span>Original herunterladen</span>
+            </button>
+            <div id="art-drop" class="art-drop" role="button" tabindex="0" title="Eigenes Artwork ablegen oder auswählen">
+              <input type="file" id="art-file" accept="image/*" hidden>
+              <span class="art-drop-empty">Upscaltes Artwork hierher ziehen oder klicken</span>
+              <img id="art-custom-img" class="art-drop-preview" alt="Eigenes Artwork" hidden>
+              <span id="art-custom-badge" class="art-drop-badge" hidden>eigenes Artwork aktiv</span>
+              <button type="button" id="art-clear" class="art-clear" title="Eigenes Artwork entfernen" aria-label="Eigenes Artwork entfernen" hidden>×</button>
+            </div>
+          </div>
+          <p id="art-custom-info" class="muted small art-info"></p>
           <label><input type="checkbox" id="opt-align" checked> am Original-Scan ausrichten</label>
           <label><input type="checkbox" id="opt-matchcolors" checked> Rahmenfarben an den Scan angleichen</label>
           <label>Zoom <input type="range" id="art-zoom" min="1" max="2" step="0.01" value="1"></label>

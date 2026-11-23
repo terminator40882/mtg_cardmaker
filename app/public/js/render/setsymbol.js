@@ -21,7 +21,10 @@ export function drawSetSymbol(ctx, img, rarity, { right, cy, h, maxW, outline = 
   let dw = h * ratio;
   if (dw > maxW) { dw = maxW; dh = maxW / ratio; }
   // Lage und Größe am Scan ausrichten (Symbolposition variiert je Set/Druck)
-  if (scan && !fixedSize) {
+  // breite Abzeichen-Symbole (M19, M21 …) sind durch die Maximalbreite begrenzt – Größe ist dort vermessen
+  const widthLimited = dw >= maxW - 0.5;
+  if (scan && !(fixedSize && widthLimited)) {
+    // fixedSize (aktuelle Rahmen): Lage ist vermessen – nur Größe (und ±4 px) aus dem Scan
     const fit = locateSymbol(scan, img, { right, cy, dw, dh, outline, fixedSize }, W, H);
     if (fit) { right = fit.right; cy = fit.cy; dw *= fit.s; dh *= fit.s; }
   }
@@ -231,7 +234,7 @@ function locateSymbol(scan, img, { right, cy, dw, dh, outline = 3, fixedSize = f
   // Formvergleich (Überdeckung/IoU) der Symbolsilhouette über Skalierung und Verschiebung
   let best = { iou: -1 }; let base = 0;
   // Größe nur dort suchen, wo sie nicht schon an Scans vermessen ist
-  for (let sc = fixedSize ? 1 : 0.75; sc <= (fixedSize ? 1.001 : 1.55); sc += 0.05) {
+  for (let sc = fixedSize ? 0.85 : 0.75; sc <= (fixedSize ? 1.12 : 1.55); sc += fixedSize ? 0.025 : 0.05) {
     // Silhouette inkl. Kontur (wie gedruckt)
     const ol = Math.max(1, Math.round(outline * f));
     const mw = Math.max(4, Math.round(dw * sc * f)) + 4 + 2 * ol; const mh = Math.max(4, Math.round(dh * sc * f)) + 4 + 2 * ol;
@@ -243,8 +246,12 @@ function locateSymbol(scan, img, { right, cy, dw, dh, outline = 3, fixedSize = f
     const sil = new Uint8Array(mw * mh);
     for (let i = 0; i < mw * mh; i++) sil[i] = md[i * 4 + 3] > 100 ? 1 : 0;
     let ns = 0; for (const v of sil) ns += v;
+    // erwartete Lage (rechte Kante, Mitte) für diese Größe
+    const exOx = (right - rx) * f + ol + 2 - mw; const exOy = (cy - ry) * f - mh / 2;
     for (let oy = 0; oy + mh <= gh; oy++) {
+      if (fixedSize && Math.abs(oy - exOy) > 4) continue;
       for (let ox = 0; ox + mw <= gw; ox++) {
+        if (fixedSize && Math.abs(ox - exOx) > 4) continue;
         let inter = 0; let uni = ns;
         for (let yy = 0; yy < mh; yy += 2) {
           const row = (oy + yy) * gw + ox; const mrow = yy * mw;
@@ -260,7 +267,7 @@ function locateSymbol(scan, img, { right, cy, dw, dh, outline = 3, fixedSize = f
     }
   }
   if (globalThis.__fitDebug) console.log('symloc', JSON.stringify(best), 'base', base.toFixed(3));
-  if (best.iou < 0.3 || best.iou < base + 0.04) return null;
+  if (best.iou < 0.3 || best.iou < base + (fixedSize ? 0.02 : 0.04)) return null;
   const s = best.sc;
   const right2 = rx + (best.ox + best.mw - 2 - Math.max(1, Math.round(outline * f))) / f; const cy2 = ry + (best.oy + best.mh / 2) / f;
   if (Math.abs(right2 - right) > 60 || Math.abs(cy2 - cy) > 40) return null;

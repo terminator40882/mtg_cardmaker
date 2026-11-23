@@ -26,7 +26,7 @@ export const LAYOUTS = {
     // Manakosten und Set-Symbol an 33 Scans nachgemessen (Kreis Ø 72 px, Abstand 4 px, rechte Kante 1387;
     // Set-Symbol inkl. Kontur 88 px hoch, rechte Kante 1383)
     cost: { d: 72, gap: 4, right: 1387, cy: 154, shadow: { dx: -3, dy: 4 } },
-    setSym: { right: 1380, cy: 1243, h: 82, maxW: 170, outline: 3 },
+    setSym: { right: 1380, cy: 1243, h: 82, maxW: 196, outline: 3 },
     pt: { cap: 49, family: 'CMTitle', baselineOffset: 32 },
     rules: { maxCap: 48, minCap: 16 },
     info: { y1: 1990, y2: 2031, x: 100, right: 1400, cap: 22 },

@@ -1,11 +1,11 @@
+import { mkCanvas } from './canvas.js';
 // Richtet das Artwork (Scryfall art_crop) am Original-Scan aus: sucht Skalierung und
 // Verschiebung, bei der das Artwork im Bildfenster am besten mit dem Scan übereinstimmt
 // (Summe der absoluten Helligkeitsdifferenzen, grob-zu-fein).
 const cache = new Map();
 
 function lumaGrid(img, w, h) {
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
+  const c = mkCanvas(w, h);
   const x = c.getContext('2d', { willReadFrequently: true });
   x.imageSmoothingQuality = 'high';
   x.drawImage(img, 0, 0, w, h);
@@ -60,7 +60,8 @@ function solve(art, scan, box, W, H) {
     // Stichproben im inneren Fenster (Rand meiden: Rahmenkante, Schatten)
     const inset = 0.06;
     const pts = [];
-    const step = li === 0 ? 1 : 2;
+    // Stichprobendichte: genügt für eindeutige Ausrichtung (grob 2, mittel 3, fein 4 Rasterpunkte)
+    const step = [2, 3, 4][li];
     for (let y = box.y + box.h * inset; y < box.y + box.h * (1 - inset); y += step / f) {
       for (let x = box.x + box.w * inset; x < box.x + box.w * (1 - inset); x += step / f) {
         const v = scanG[Math.round(y * f) * sw + Math.round(x * f)];
@@ -79,14 +80,16 @@ function solve(art, scan, box, W, H) {
           const ox = base.cx - w / 2 + (center.dx || 0) + dx;
           const oy = base.cy - h / 2 + (center.dy || 0) + dy;
           // Kartenkoordinate -> Artwork-Raster
-          const k = (gw / w);
+          const k = (gw / w); const kh = gh / h;
           let err = 0; let n = 0;
+          // Abbruch, sobald der Kandidat sicher schlechter ist als der bisher beste
+          const limit = bestErr * (pts.length / 3);
           for (let i = 0; i < pts.length; i += 3) {
-            const v = sample(artG, gw, gh, (pts[i] - ox) * k, (pts[i + 1] - oy) * (gh / h));
-            if (v < 0) { err += 60; n++; continue; }
-            err += Math.abs(v - pts[i + 2]); n++;
+            const v = sample(artG, gw, gh, (pts[i] - ox) * k, (pts[i + 1] - oy) * kh);
+            err += v < 0 ? 60 : Math.abs(v - pts[i + 2]); n++;
+            if (err > limit) break;
           }
-          err /= n;
+          err = n === pts.length / 3 ? err / n : Infinity;
           if (err < bestErr) { bestErr = err; cand = { ds: sc, dx: (center.dx || 0) + dx, dy: (center.dy || 0) + dy }; }
         }
       }
@@ -111,94 +114,66 @@ function range(a, b, st) {
 
 const textCache = new Map();
 
-/** Dunkle Pixel (Schrift) in einem Kartenausschnitt als 0/1-Raster. */
-function inkMask(src, box, f, W, H, threshold = 110) {
-  const w = Math.max(1, Math.round(box.w * f)); const h = Math.max(1, Math.round(box.h * f));
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
+// wiederverwendete Arbeits-Canvases (vermeidet ständiges Anlegen großer Canvases)
+const pool = new Map();
+function workCanvas(w, h, slot = 'a') {
+  const key = slot;
+  let c = pool.get(key);
+  if (!c) { c = mkCanvas(w, h); pool.set(key, c); }
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; } else c.getContext('2d', { willReadFrequently: true }).clearRect(0, 0, w, h);
   const x = c.getContext('2d', { willReadFrequently: true });
+  x.setTransform(1, 0, 0, 1, 0, 0);
   x.imageSmoothingQuality = 'high';
-  const sw = src.width || src.naturalWidth; const sh = src.height || src.naturalHeight;
-  x.drawImage(src, box.x * sw / W, box.y * sh / H, box.w * sw / W, box.h * sh / H, 0, 0, w, h);
-  const d = x.getImageData(0, 0, w, h).data;
+  return [c, x];
+}
+
+/** Tintenraster aus RGBA-Daten: Schrift = deutlich dunkler als der Zeilenhintergrund. */
+function maskFromData(d, w, h, threshold = 110) {
   const out = new Uint8Array(w * h);
-  const lum = new Float32Array(w * h);
   const dk = new Float32Array(w * h); // Dunkelheit 0..1 relativ zum Zeilenhintergrund
-  for (let i = 0; i < w * h; i++) lum[i] = d[i * 4 + 3] > 128 ? d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114 : 255;
-  // Schrift = deutlich dunkler als der Hintergrund der Zeile (robust gegen getönte Textfelder)
-  const row = new Float32Array(w);
+  const lum = new Float32Array(w);
+  const hist = new Uint32Array(256);
+  const k = Math.floor(w * 0.85);
   for (let y = 0; y < h; y++) {
-    for (let xx = 0; xx < w; xx++) row[xx] = lum[y * w + xx];
-    const sorted = Array.from(row).sort((a, b) => a - b);
-    const bg = sorted[Math.floor(w * 0.85)];
-    const t = Math.min(threshold, bg * 0.6);
+    hist.fill(0);
     for (let xx = 0; xx < w; xx++) {
-      const l = lum[y * w + xx];
-      out[y * w + xx] = l < t ? 1 : 0;
-      dk[y * w + xx] = bg > 0 ? Math.max(0, Math.min(1, (bg * 0.85 - l) / (bg * 0.85))) : 0;
+      const i = (y * w + xx) * 4;
+      const l = d[i + 3] > 128 ? d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114 : 255;
+      lum[xx] = l; hist[l | 0]++;
+    }
+    // 85-%-Perzentil der Zeilenhelligkeit über das Histogramm (statt Sortieren)
+    let acc = 0; let bg = 255;
+    for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > k) { bg = v; break; } }
+    const t = Math.min(threshold, bg * 0.6);
+    const ref = bg * 0.85;
+    for (let xx = 0; xx < w; xx++) {
+      const l = lum[xx]; const o = y * w + xx;
+      out[o] = l < t ? 1 : 0;
+      dk[o] = ref > 0 ? Math.max(0, Math.min(1, (ref - l) / ref)) : 0;
     }
   }
   return { out, dk, w, h };
 }
 
-/**
- * Vergleicht zwei Tintenraster blockweise (Dichte je b×b-Block) per Korrelation.
- * Liefert 1 - r, damit kleiner = besser. Korrelation statt Differenz, damit weniger
- * Tinte (kleinere Schrift) nicht automatisch „besser“ abschneidet, wenn der Text abweicht.
- */
-function densityDiff(a, r, b) {
-  // fein in der Höhe (Zeilenlage), grob in der Breite (Zeilenlänge) – robust gegen abweichenden Wortlaut
-  const bw = Math.max(b, Math.floor(Math.min(a.w, r.w) / 8));
-  const w = Math.floor(Math.min(a.w, r.w) / bw); const h = Math.floor(Math.min(a.h, r.h) / b);
-  const n = w * h;
-  const va = new Float32Array(n); const vr = new Float32Array(n);
-  for (let by = 0; by < h; by++) {
-    for (let bx = 0; bx < w; bx++) {
-      let sa = 0; let sr = 0;
-      for (let y = by * b; y < by * b + b; y++) {
-        for (let x = bx * bw; x < bx * bw + bw; x++) { sa += a.out[y * a.w + x]; sr += r.out[y * r.w + x]; }
-      }
-      va[by * w + bx] = sa; vr[by * w + bx] = sr;
-    }
-  }
-  let ma = 0; let mr = 0;
-  for (let i = 0; i < n; i++) { ma += va[i]; mr += vr[i]; }
-  ma /= n; mr /= n;
-  let cov = 0; let sa2 = 0; let sr2 = 0;
-  for (let i = 0; i < n; i++) {
-    const da = va[i] - ma; const dr = vr[i] - mr;
-    cov += da * dr; sa2 += da * da; sr2 += dr * dr;
-  }
-  if (!sa2 || !sr2) return 1;
-  return 1 - cov / Math.sqrt(sa2 * sr2);
+/** Dunkle Pixel (Schrift) in einem Kartenausschnitt als 0/1-Raster. */
+function inkMask(src, box, f, W, H, threshold = 110) {
+  const w = Math.max(1, Math.round(box.w * f)); const h = Math.max(1, Math.round(box.h * f));
+  const [, x] = workCanvas(w, h, 'ink');
+  const sw = src.width || src.naturalWidth; const sh = src.height || src.naturalHeight;
+  x.drawImage(src, box.x * sw / W, box.y * sh / H, box.w * sw / W, box.h * sh / H, 0, 0, w, h);
+  return maskFromData(x.getImageData(0, 0, w, h).data, w, h, threshold);
 }
 
 /**
- * Wählt aus caps die Versalhöhe, deren Satz (draw(ctx, cap) zeichnet nur den Text in
- * Kartenkoordinaten) am besten mit der Schrift im Scan übereinstimmt.
+ * Zeichnet (draw in Kartenkoordinaten) direkt in eine Canvas in der Größe des Ausschnitts
+ * (Maßstab f) und liefert das Tintenraster – ohne kartengroße Zwischen-Canvas.
  */
-export function fitCapToScan(scan, box, W, H, caps, draw, key) {
-  if (!scan || !caps.length) return null;
-  if (key && textCache.has(key)) return textCache.get(key);
-  const f = 0.5;
-  const ref = inkMask(scan, box, f, W, H);
-  const c = document.createElement('canvas');
-  c.width = Math.round(W * f); c.height = Math.round(H * f);
-  const x = c.getContext('2d', { willReadFrequently: true });
-  let best = null;
-  for (const cap of caps) {
-    x.setTransform(1, 0, 0, 1, 0, 0);
-    x.clearRect(0, 0, c.width, c.height);
-    x.setTransform(f, 0, 0, f, 0, 0);
-    if (!draw(x, cap)) continue;  // cap kann auch ein Objekt {cap, k} sein
-    const m = inkMask(c, box, f, W, H);
-    const err = densityDiff(m, ref, 3);
-    if (!best || err < best.err) best = { cap, err };
-    if (globalThis.__fitDebug) console.log('fit', JSON.stringify(cap), err);
-  }
-  const res = best ? best.cap : null;
-  if (key) textCache.set(key, res);
-  return res;
+function renderInk(draw, box, f, threshold = 110) {
+  const w = Math.max(1, Math.round(box.w * f)); const h = Math.max(1, Math.round(box.h * f));
+  const [, x] = workCanvas(w, h, 'render');
+  x.setTransform(f, 0, 0, f, -box.x * f, -box.y * f);
+  if (draw(x) === false) return null;
+  return maskFromData(x.getImageData(0, 0, w, h).data, w, h, threshold);
 }
 
 // ---------- Schriftgröße/Zeilenabstand über Zeilenmetriken (unabhängig vom Wortlaut) ----------
@@ -249,39 +224,6 @@ function lineStats(m) {
   return { height, pitch, lines: runs.length };
 }
 
-/**
- * Wählt den Kandidaten (z. B. {cap, k}), dessen Satz dieselbe Zeilenhöhe und denselben
- * Zeilenabstand hat wie die Schrift im Scan. draw(ctx, cand) zeichnet nur Text.
- */
-export function fitTextMetrics(scan, box, W, H, cands, draw, key) {
-  if (!scan || !cands.length) return null;
-  if (key && textCache.has(key)) return textCache.get(key);
-  // beide Bilder in der Auflösung des Scans auswerten (gleiche Unschärfe)
-  const f = (scan.naturalWidth || scan.width) / W;
-  const ref = lineStats(inkMask(scan, box, f, W, H));
-  if (!ref) { if (key) textCache.set(key, null); return null; }
-  const c = document.createElement('canvas');
-  c.width = Math.round(W * f); c.height = Math.round(H * f);
-  const x = c.getContext('2d', { willReadFrequently: true });
-  let best = null;
-  for (const cand of cands) {
-    x.setTransform(1, 0, 0, 1, 0, 0);
-    x.clearRect(0, 0, c.width, c.height);
-    x.setTransform(f, 0, 0, f, 0, 0);
-    if (!draw(x, cand)) continue;
-    const st = lineStats(inkMask(c, box, f, W, H));
-    if (!st) continue;
-    let err = 2 * Math.abs(st.height - ref.height) / ref.height;
-    if (ref.pitch && st.pitch) err += Math.abs(st.pitch - ref.pitch) / ref.pitch;
-    else if (ref.pitch || st.pitch) err += 0.15;
-    err += Math.abs((cand.k || 1) - 1) * 0.3;
-    if (globalThis.__fitDebug) console.log('metric', JSON.stringify(cand), JSON.stringify(st), JSON.stringify(ref), err.toFixed(3));
-    if (!best || err < best.err) best = { cand, err };
-  }
-  const res = best ? best.cand : null;
-  if (key) textCache.set(key, res);
-  return res;
-}
 
 
 // ---------- Schriftgröße über die erste Textzeile (Kreuzkorrelation) ----------
@@ -354,30 +296,33 @@ export function fitTextToScan(scan, box, W, H, caps, ks, draw, key) {
   const ref = inkMask(scan, box, f, W, H);
   const rl = firstLine(ref);
   const refStats = lineStats(ref);
-  const c = document.createElement('canvas');
-  c.width = Math.round(W); c.height = Math.round(H);
-  const x = c.getContext('2d', { willReadFrequently: true });
-  const render = (cand) => {
-    x.setTransform(1, 0, 0, 1, 0, 0);
-    x.clearRect(0, 0, c.width, c.height);
-    if (!draw(x, cand)) return null;
-    return inkMask(c, box, f, W, H);
-  };
+  // Kandidaten direkt in Ausschnittgröße rendern
+  const render = (cand) => renderInk((x) => draw(x, cand), box, f);
   let res = null;
   if (rl) {
     // 1) Größe: erste Zeile – Vergleich über die gemeinsame Länge (die ersten Wörter sind fast immer gleich)
     const above = Math.round(rl.core * 1.1); const below = Math.round(rl.core * 0.6);
     let best = null;
-    for (const cap of caps) {
+    const tried = new Map();
+    const score = (cap) => {
+      if (tried.has(cap)) return tried.get(cap);
       const m = render({ cap, k: 1 });
       const ml = m && firstLine(m);
-      if (!ml) continue;
-      const width = Math.round(Math.min(rl.right - rl.left, ml.right - ml.left) * 0.85);
-      const r = stripCorr(ref, rl, m, ml, width, above, below);
-      if (globalThis.__fitDebug) console.log('line', cap, r.toFixed(4), JSON.stringify(rl), JSON.stringify(ml));
-      if (!best || r > best.r) best = { cap, r };
-    }
-    if (best && best.r > 0.2) {
+      let r = -1;
+      if (ml) {
+        const width = Math.round(Math.min(rl.right - rl.left, ml.right - ml.left) * 0.85);
+        r = stripCorr(ref, rl, m, ml, width, above, below);
+      }
+      if (globalThis.__fitDebug) console.log('line', cap, r.toFixed(4));
+      tried.set(cap, r);
+      if (r > -1 && (!best || r > best.r)) best = { cap, r };
+      return r;
+    };
+    // grob (jeder 3. Kandidat), dann fein um die besten zwei
+    for (let i = 0; i < caps.length; i += 3) score(caps[i]);
+    const ranked = [...tried.entries()].sort((p, q) => q[1] - p[1]).slice(0, 2).map(([c]) => caps.indexOf(c));
+    for (const i of ranked) for (let j = Math.max(0, i - 2); j <= Math.min(caps.length - 1, i + 2); j++) score(caps[j]);
+    if (best && best.r > 0.3) {
       res = { cap: best.cap, k: 1, r: best.r };
       // 2) Zeilenabstand passend zum Scan
       if (refStats?.pitch && ks.length > 1) {
@@ -487,8 +432,7 @@ export function scanLines(scan, box, W, H, exclude = null) {
  * Zeilen), oben/unten: schmaler textfreier Streifen innen am linken Rand.
  */
 export function boxEdges(src, W, H, box) {
-  const c = document.createElement('canvas');
-  c.width = W; c.height = H;
+  const c = mkCanvas(W, H);
   const x = c.getContext('2d', { willReadFrequently: true });
   x.drawImage(src, 0, 0, W, H);
   const d = x.getImageData(0, 0, W, H).data;
@@ -525,14 +469,12 @@ export function sampleTextColor(scan, W, H, region, draw) {
   const f = Math.min(1, (scan.naturalWidth || scan.width) / W * 2);
   const w = Math.round(region.w * f); const h = Math.round(region.h * f);
   if (w < 4 || h < 4) return null;
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
+  const c = mkCanvas(w, h);
   const x = c.getContext('2d', { willReadFrequently: true });
   x.setTransform(f, 0, 0, f, -region.x * f, -region.y * f);
   draw(x);
   const m = x.getImageData(0, 0, w, h).data;
-  const s = document.createElement('canvas');
-  s.width = w; s.height = h;
+  const s = mkCanvas(w, h);
   const sx = s.getContext('2d', { willReadFrequently: true });
   const sw = scan.naturalWidth || scan.width; const sh = scan.naturalHeight || scan.height;
   sx.drawImage(scan, region.x * sw / W, region.y * sh / H, region.w * sw / W, region.h * sh / H, 0, 0, w, h);
@@ -565,3 +507,8 @@ export function sampleTextColor(scan, W, H, region, draw) {
   const hex = (v) => Math.round(v).toString(16).padStart(2, '0');
   return `#${hex(med(r))}${hex(med(g))}${hex(med(b))}`;
 }
+
+export { solve as solveArtAlignment };
+/** Ergebnis einer (z. B. im Worker berechneten) Ausrichtung in den Cache übernehmen. */
+export function cacheArtAlignment(key, res) { if (key) cache.set(key, res); }
+export const hasArtAlignment = (key) => cache.has(key);

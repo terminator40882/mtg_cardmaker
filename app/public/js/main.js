@@ -75,6 +75,7 @@ function renderGrid() {
 
 // ---------- Auswahl & Rendering ----------
 async function selectPrint(id) {
+  if (globalThis.__perf) globalThis.__perf.push(['select', performance.now()]);
   state.printId = id;
   document.querySelectorAll('.print').forEach((el) => el.classList.toggle('active', el.dataset.id === id));
   $('status').textContent = 'Lade Karte …';
@@ -132,6 +133,7 @@ function currentOptions(scale = 1) {
     art: { zoom: Number($('art-zoom').value), dx: Number($('art-dx').value), dy: Number($('art-dy').value) },
     artUrl: api.artUrl(state.card.id, hasFaceArt ? face : 0),
     alignArt: $('opt-align').checked,
+    workers: !globalThis.__noWorkers,
     copyLayout: $('opt-copylayout').checked,
     matchColors: $('opt-matchcolors').checked,
     scanUrl: faceImage(state.card, face).png ? `/asset?u=${encodeURIComponent(faceImage(state.card, face).png)}` : null,

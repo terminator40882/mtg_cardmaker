@@ -231,43 +231,78 @@ function locateSymbol(scan, img, { right, cy, dw, dh, outline = 3, fixedSize = f
     let n = 0; for (let yy = 0; yy < gh; yy++) n += on[yy * gw + xx];
     if (n > gh * 0.7) for (let yy = 0; yy < gh; yy++) on[yy * gw + xx] = 0;
   }
-  // Formvergleich (Überdeckung/IoU) der Symbolsilhouette über Skalierung und Verschiebung
-  let best = { iou: -1 }; let base = 0;
-  // Größe nur dort suchen, wo sie nicht schon an Scans vermessen ist
+  // Formvergleich (Überdeckung/IoU) der Symbolsilhouette über Skalierung und Verschiebung.
+  // Summenflächentabelle für die "an"-Pixel im Fenster, Silhouette als Punktliste; grob (Schritt 2),
+  // dann fein um den besten Treffer.
+  const sat = new Uint32Array((gw + 1) * (gh + 1));
+  for (let yy = 0; yy < gh; yy++) {
+    let rowSum = 0;
+    for (let xx = 0; xx < gw; xx++) { rowSum += on[yy * gw + xx]; sat[(yy + 1) * (gw + 1) + xx + 1] = sat[yy * (gw + 1) + xx + 1] + rowSum; }
+  }
+  const winSum = (ox, oy, w2, h2) => sat[(oy + h2) * (gw + 1) + ox + w2] - sat[oy * (gw + 1) + ox + w2] - sat[(oy + h2) * (gw + 1) + ox] + sat[oy * (gw + 1) + ox];
+  const ol = Math.max(1, Math.round(outline * f));
+  const shapes = [];
   for (let sc = fixedSize ? 0.85 : 0.75; sc <= (fixedSize ? 1.12 : 1.55); sc += fixedSize ? 0.025 : 0.05) {
     // Silhouette inkl. Kontur (wie gedruckt)
-    const ol = Math.max(1, Math.round(outline * f));
     const mw = Math.max(4, Math.round(dw * sc * f)) + 4 + 2 * ol; const mh = Math.max(4, Math.round(dh * sc * f)) + 4 + 2 * ol;
+    if (mw > gw || mh > gh) continue;
     const mc = document.createElement('canvas');
     mc.width = mw; mc.height = mh;
     const mx = mc.getContext('2d', { willReadFrequently: true });
     for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) mx.drawImage(img, 2 + ol + Math.cos(a) * ol, 2 + ol + Math.sin(a) * ol, mw - 4 - 2 * ol, mh - 4 - 2 * ol);
     const md = mx.getImageData(0, 0, mw, mh).data;
-    const sil = new Uint8Array(mw * mh);
-    for (let i = 0; i < mw * mh; i++) sil[i] = md[i * 4 + 3] > 100 ? 1 : 0;
-    let ns = 0; for (const v of sil) ns += v;
-    // erwartete Lage (rechte Kante, Mitte) für diese Größe
-    const exOx = (right - rx) * f + ol + 2 - mw; const exOy = (cy - ry) * f - mh / 2;
-    for (let oy = 0; oy + mh <= gh; oy++) {
-      if (fixedSize && Math.abs(oy - exOy) > 4) continue;
-      for (let ox = 0; ox + mw <= gw; ox++) {
-        if (fixedSize && Math.abs(ox - exOx) > 4) continue;
-        let inter = 0; let uni = ns;
-        for (let yy = 0; yy < mh; yy += 2) {
-          const row = (oy + yy) * gw + ox; const mrow = yy * mw;
-          for (let xx = 0; xx < mw; xx += 2) {
-            const o = on[row + xx]; const m = sil[mrow + xx];
-            if (o && m) inter += 4; else if (o && !m) uni += 4;
-          }
+    const pts = []; const ptsCoarse = [];
+    for (let yy = 0; yy < mh; yy++) for (let xx = 0; xx < mw; xx++) {
+      if (md[(yy * mw + xx) * 4 + 3] > 100) { pts.push(yy * gw + xx); if (!(yy & 1) && !(xx & 1)) ptsCoarse.push(yy * gw + xx); }
+    }
+    if (!pts.length) continue;
+    shapes.push({ sc, mw, mh, pts, ptsCoarse, exOx: (right - rx) * f + ol + 2 - mw, exOy: (cy - ry) * f - mh / 2 });
+  }
+  const iouAt = (sh, ox, oy, coarse) => {
+    const P = coarse ? sh.ptsCoarse : sh.pts; const base0 = oy * gw + ox;
+    let inter = 0;
+    for (let i = 0; i < P.length; i++) inter += on[base0 + P[i]];
+    const scale = sh.pts.length / P.length;
+    inter *= scale;
+    const uni = sh.pts.length + winSum(ox, oy, sh.mw, sh.mh) - inter;
+    return inter / Math.max(1, uni);
+  };
+  let best = { iou: -1 }; let base = 0;
+  for (const sh of shapes) {
+    for (let oy = 0; oy + sh.mh <= gh; oy += 2) {
+      if (fixedSize && Math.abs(oy - sh.exOy) > 5) continue;
+      for (let ox = 0; ox + sh.mw <= gw; ox += 2) {
+        if (fixedSize && Math.abs(ox - sh.exOx) > 5) continue;
+        const v = iouAt(sh, ox, oy, true);
+        if (v > best.iou) best = { iou: v, sh, ox, oy };
+      }
+    }
+    // Wert an der erwarteten Lage (Skalierung 1) als Vergleich
+    if (Math.abs(sh.sc - 1) < 0.01) {
+      const ox = Math.round(sh.exOx); const oy = Math.round(sh.exOy);
+      if (ox >= 0 && oy >= 0 && ox + sh.mw <= gw && oy + sh.mh <= gh) base = iouAt(sh, ox, oy, false);
+    }
+  }
+  if (best.sh) {
+    // Feinsuche: Nachbarskalierungen und ±2 px mit allen Punkten
+    const i0 = shapes.indexOf(best.sh); const g = best;
+    best = { iou: -1 };
+    for (let si = Math.max(0, i0 - 1); si <= Math.min(shapes.length - 1, i0 + 1); si++) {
+      const sh = shapes[si];
+      const cx = g.ox + (g.sh.mw - sh.mw) / 2; const cy0 = g.oy + (g.sh.mh - sh.mh) / 2;
+      for (let oy = Math.round(cy0) - 2; oy <= Math.round(cy0) + 2; oy++) {
+        for (let ox = Math.round(cx) - 2; ox <= Math.round(cx) + 2; ox++) {
+          if (ox < 0 || oy < 0 || ox + sh.mw > gw || oy + sh.mh > gh) continue;
+          if (fixedSize && (Math.abs(ox - sh.exOx) > 4 || Math.abs(oy - sh.exOy) > 4)) continue;
+          const v = iouAt(sh, ox, oy, false);
+          if (v > best.iou) best = { iou: v, sh, ox, oy };
         }
-        const iou = inter / Math.max(1, uni);
-        if (iou > best.iou) best = { iou, sc, ox, oy, mw, mh };
-        if (Math.abs(sc - 1) < 0.01 && Math.abs(ox + mw - 2 - ol - (right - rx) * f) < 1.5 && Math.abs(oy + mh / 2 - (cy - ry) * f) < 1.5) base = Math.max(base, iou);
       }
     }
   }
-  if (globalThis.__fitDebug) console.log('symloc', JSON.stringify(best), 'base', base.toFixed(3));
-  if (best.iou < 0.3 || best.iou < base + (fixedSize ? 0.02 : 0.04)) return null;
+  if (best.sh) Object.assign(best, { sc: best.sh.sc, mw: best.sh.mw, mh: best.sh.mh });
+  if (globalThis.__fitDebug) console.log('symloc', best.iou, best.sc, best.ox, best.oy, 'base', base.toFixed(3));
+  if (!best.sh || best.iou < 0.3 || best.iou < base + (fixedSize ? 0.02 : 0.04)) return null;
   const s = best.sc;
   const right2 = rx + (best.ox + best.mw - 2 - Math.max(1, Math.round(outline * f))) / f; const cy2 = ry + (best.oy + best.mh / 2) / f;
   if (Math.abs(right2 - right) > 60 || Math.abs(cy2 - cy) > 40) return null;

@@ -3,7 +3,7 @@ import { LAYOUTS, layoutForFrame, W, H } from './layouts.js';
 import { frameColors, BORDER_COLORS, VEHICLE_PT } from './palettes.js';
 import { drawFrameLayer, drawHolo, drawBrush, roundRect } from './frames.js';
 import { parseRules, parseFlavor, symbolsIn, smartQuotes } from './textparse.js';
-import { fitText, drawText, drawSymbol, drawFittedLine, sizeForCap, METRICS, layoutFromLines } from './textlayout.js';
+import { fitText, drawText, drawSymbol, drawFittedLine, sizeForCap, METRICS, layoutFromLines, getFontScales } from './textlayout.js';
 import { drawSetSymbol } from './setsymbol.js';
 import { loadImage, loadSymbols, ensureFonts } from './assets.js';
 import { luminance, mix } from './textures.js';
@@ -12,8 +12,10 @@ import { drawAdventure } from './adventure.js';
 import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT } from './dfc.js';
 import { renderLandscape } from './landscape.js';
 import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield, setPwIcons } from './planeswalker.js';
-import { ccStatus, ccLayers, loadLayers, drawLayers, ccArtBounds, drawWatermark, ccPwIcons, matchFrameColors } from './cc.js';
-import { alignArt, fitTextToScan, blockExtent, scanLines, boxEdges, sampleTextColor } from './align.js';
+import { ccStatus, ccLayers, loadLayers, drawLayers, prepareLayers, ccArtBounds, drawWatermark, ccPwIcons, matchFrameColors } from './cc.js';
+import { getPool, toBitmap } from './pool.js';
+import { fitRulesVariant } from './rulesfit.js';
+import { alignArt, fitTextToScan, blockExtent, scanLines, boxEdges, sampleTextColor, cacheArtAlignment, hasArtAlignment } from './align.js';
 
 export { W, H };
 
@@ -371,7 +373,9 @@ export function drawFramesComposite(ctx, L, palettes, flags, scale) {
 }
 
 /** Hauptfunktion: zeichnet die Karte auf ein Canvas. */
+const perfMark = (label) => { if (globalThis.__perf) globalThis.__perf.push([label, performance.now()]); };
 export async function renderCard(canvas, model, deps) {
+  perfMark('start');
   const { symbolMap, keywords } = deps;
   const scale = model.opts.scale || 1;
   const L = model.layout;
@@ -401,7 +405,65 @@ export async function renderCard(canvas, model, deps) {
     opts.alignArt && opts.scanUrl ? loadImage(opts.scanUrl).catch(() => null) : null,
     ensureFonts(),
   ]);
+  perfMark('loaded');
   model.frameSource = cc ? 'cc' : 'code';
+
+  // ---- Analyse vorab planen und auf Worker verteilen (parallel zum Zeichnen im Hauptthread)
+  const dfcEarly = L.style === 'm15' || L.style === 'm2003' ? dfcKind(model.card) : null;
+  let textBoxEarly = { ...L.text };
+  if (dfcEarly === 'mdfc' && model.card.card_faces?.length === 2) textBoxEarly = { ...textBoxEarly, h: textBoxEarly.h - 80 };
+  if (flags.planeswalker && !retroLayout) textBoxEarly = { ...textBoxEarly, x: textBoxEarly.x + 120, w: textBoxEarly.w - 120 };
+  let ptZoneEarly = (flags.pt || flags.planeswalker) && L.ptPlate ? { x: L.ptPlate.x - 12, y: L.ptPlate.y } : null;
+  if (ptZoneEarly && dfcEarly === 'transform' && model.faceIdx === 0 && model.card.card_faces?.[1]?.power != null) {
+    ptZoneEarly = { x: L.ptPlate.x + L.ptPlate.w - 120, y: L.ptPlate.y - 80, tolerance: 60 };
+  }
+  const parasEarly = [...rulesParas, ...flavorParas];
+  const rulesBase = {
+    maxCap: flags.planeswalker ? L.rules.maxCap * 0.9 : L.rules.maxCap,
+    minCap: L.rules.minCap,
+    fixedCap: opts.fontCap || null,
+    exclude: ptZoneEarly,
+    metrics: L.metrics,
+    centerShort: L.rules.centerShort,
+  };
+  let rulesVariants = null;
+  if (!['adventure', 'saga', 'class', 'pw', 'split', 'battle'].includes(L.kind) && !basicSym && parasEarly.length
+    && !opts.fontCap && opts.alignArt && scan) {
+    // Varianten: Oracle-Text enthält oft Reminder-Text, der auf diesem Druck fehlt
+    rulesVariants = [parasEarly];
+    if (opts.showReminder && /\(/.test(face.oracle_text || '')) {
+      const noRem = parseRules(face.oracle_text, { showReminder: false, keywords, planeswalker: flags.planeswalker && !retroLayout });
+      rulesVariants.push([...noRem, ...flavorParas]);
+    }
+  }
+  const rulesKey = (vi) => `${opts.scanUrl}|${model.faceIdx}|${L.style}${L.variant || ''}|${opts.showFlavor}|${vi}|${model.face.oracle_text}`;
+  const pool = opts.workers === false ? null : await getPool(getFontScales());
+  let rulesJobs = null;
+  let alignJob = null;
+  const alignBox = cc ? ccArtBounds(model, L) : null;
+  const alignKey = `${opts.artUrl}|${opts.scanUrl}|${L.style}${L.variant || ''}`;
+  if (pool) {
+    const scanBm = scan ? await toBitmap(scan) : null;
+    if (rulesVariants && scanBm) {
+      const symBm = new Map();
+      await Promise.all([...symbols].map(async ([k, img]) => symBm.set(k, await toBitmap(img, 256))));
+      rulesJobs = rulesVariants.map((vp, vi) => pool.run('rules', {
+        vp, textBox: textBoxEarly, baseOpts: rulesBase, rules: L.rules, metrics: L.metrics,
+        scan: scanBm, W, H, symbols: symBm, key: rulesKey(vi),
+      }).catch(() => null));
+    }
+    if (cc && art && scanBm && opts.alignArt && !hasArtAlignment(alignKey)) {
+      const artBm = await toBitmap(art);
+      if (artBm) alignJob = pool.run('align', { art: artBm, scan: scanBm, box: alignBox, W, H }).catch(() => null);
+    }
+  }
+  // Rahmen im Hauptthread zusammensetzen, während die Worker rechnen
+  if (cc) prepareLayers(cc, W, H, scale, { borderColor: model.borderKey !== 'black' ? model.borderColor : null });
+  // maskenlose 1993er-Rahmen: Textfeld und übriger Rahmen als eigene Bereiche (Legends/Revised haben andere Töne)
+  const colorRects = L.style === 'retro' && L.variant === '93' && L.box
+    ? [{ x: (L.box.x + 10) / W, y: (L.box.y + 10) / H, width: (L.box.w - 20) / W, height: (L.box.h - 20) / H },
+      { x: 90 / W, y: 90 / H, width: (W - 180) / W, height: (H - 180) / H }] : [];
+
   setPwIcons(cc && L.kind === 'pw' ? await ccPwIcons(L.typePlate.y < 1100, model) : null);
 
   canvas.width = Math.round(W * scale);
@@ -426,22 +488,22 @@ export async function renderCard(canvas, model, deps) {
 
   if (cc) {
     // Rahmen aus Card-Conjurer-Grafiken; Artwork liegt darunter im Bildfenster
-    const box = ccArtBounds(model, L);
-    const rect = alignArt(art, scan, box, W, H, `${opts.artUrl}|${opts.scanUrl}|${L.style}${L.variant || ''}`);
+    const box = alignBox;
+    perfMark('f0');
+    if (alignJob) cacheArtAlignment(alignKey, await alignJob);
+    const rect = alignArt(art, scan, box, W, H, alignKey);
     model.artAligned = !!rect;
     const adj = rect ? { ...opts.art, rect } : opts.art;
     if (model.palettes[0].variant === 'devoid') drawArt(ctx, art, { x: 0, y: 0, w: W, h: H }, adj, box);
     else drawArt(ctx, art, L.kind === 'pw' ? L.art : box, adj, box);
+    perfMark('align+art');
     drawLayers(ctx, cc, W, H, scale, { borderColor: model.borderKey !== 'black' ? model.borderColor : null });
+    perfMark('layers');
     // Farben der Rahmenbereiche an den gedruckten Scan angleichen (Druckfarben sind dunkler/satter)
     if (opts.alignArt && opts.matchColors !== false && scan && model.artAligned) {
-      // maskenlose 1993er-Rahmen: Textfeld als eigener Bereich (Legends/Revised haben andere Töne)
-      const rects = L.style === 'retro' && L.variant === '93' && L.box
-        ? [{ x: (L.box.x + 10) / W, y: (L.box.y + 10) / H, width: (L.box.w - 20) / W, height: (L.box.h - 20) / H },
-          // übriger Rahmen innerhalb des Rands (Legends/Revised haben andere Rahmentöne als die Vorlage)
-          { x: 90 / W, y: 90 / H, width: (W - 180) / W, height: (H - 180) / H }] : [];
-      matchFrameColors(ctx, cc, scan, W, H, [box], rects);
+      matchFrameColors(ctx, cc, scan, W, H, [box], colorRects);
     }
+    perfMark('colors');
     if (opts.watermark !== false) await drawWatermark(ctx, model, L, scale);
   } else {
     if (model.palettes[0].variant === 'devoid' && L.style === 'm15') {
@@ -476,6 +538,7 @@ export async function renderCard(canvas, model, deps) {
   if (sampledName) headColor = sampledName;
   const headShadow = (retro || darkBack) && luminance(headColor) > 0.45 ? 'rgba(0,0,0,0.9)' : null;
 
+  perfMark('frame');
   // Name + Manakosten
   const costCodes = symbolsIn(face.mana_cost);
   const cw = costWidth(costCodes, L.cost);
@@ -497,6 +560,7 @@ export async function renderCard(canvas, model, deps) {
   drawFittedLine(ctx, face.type_line, T.family, T.cap, T.x + ciShift, T.baseline,
     Math.min(T.right, L.setSym.right - (symW ? symW + 24 : 0)) - T.x - ciShift, { color: headColor, shadow: headShadow });
 
+  perfMark('head');
   // Regeltext
   let textBox = { ...L.text };
   if (dfc === 'mdfc' && model.card.card_faces?.length === 2) {
@@ -617,57 +681,14 @@ export async function renderCard(canvas, model, deps) {
     };
     let textOpts = baseOpts;
     let textParas = paras;
-    if (!opts.fontCap && opts.alignArt && scan) {
-      const baseM = { ...METRICS, ...(L.metrics || {}) };
-      const withK = (k) => ({ ...(L.metrics || {}), lineHeight: baseM.lineHeight * k, paraGap: baseM.paraGap * k, flavorGap: baseM.flavorGap * k });
-      const fScan = (scan.naturalWidth || scan.width) / W;
-      const scanExt = blockExtent(scan, textBox, W, H, fScan);
-      // Varianten: Oracle-Text enthält oft Reminder-Text, der auf diesem Druck fehlt
-      const variants = [paras];
-      // auch beim gedruckten Text: MTGJSON führt vereinzelt Reminder-Text, der auf diesem Druck fehlt
-      if (opts.showReminder && /\(/.test(face.oracle_text || '')) {
-        const noRem = parseRules(face.oracle_text, { showReminder: false, keywords, planeswalker: flags.planeswalker && !retroLayout });
-        variants.push([...noRem, ...flavorParas]);
-      }
+    if (rulesVariants) {
+      // Ergebnisse der Worker (parallel berechnet) bzw. lokal, falls keine Worker verfügbar
+      const results = rulesJobs ? await Promise.all(rulesJobs) : rulesVariants.map(() => null);
       let best = null;
-      variants.forEach((vp, vi) => {
-        const auto = fitText(ctx, vp, textBox, baseOpts).cap;
-        const draw = (x, c) => {
-          drawText(x, fitText(x, vp, textBox, { ...baseOpts, fixedCap: c.cap, metrics: withK(c.k) }), symbols, { flavorBar: false });
-          return true;
-        };
-        const key = `${opts.scanUrl}|${model.faceIdx}|${L.style}${L.variant || ''}|${opts.showFlavor}|${vi}|${model.face.oracle_text}`;
-        // 1) Versalhöhe über die erste Zeile, 2) Zeilenabstand über den Zeilenabstand im Scan
-        const caps = [];
-        for (let c = L.rules.maxCap * 1.15; c >= Math.max(L.rules.minCap, auto * 0.7); c -= 0.5) caps.push(c);
-        const fit = fitTextToScan(scan, textBox, W, H, caps, [0.88, 0.91, 0.94, 0.97, 1, 1.03, 1.06], draw, `${key}|f`);
-        let o = baseOpts;
-        if (fit) {
-          // nie größer als das, was ins Textfeld passt
-          let c = fit.cap;
-          const fits = (cc) => {
-            const lay = fitText(ctx, vp, textBox, { ...baseOpts, fixedCap: cc, metrics: withK(fit.k) });
-            // etwas Luft zu den Kanten des Textfelds lassen
-            return !lay.overflow && lay.height <= textBox.h - 12 && !lay.collides;
-          };
-          while (c > L.rules.minCap && !fits(c)) c -= 0.5;
-          o = { ...baseOpts, fixedCap: c, metrics: withK(fit.k) };
-        }
-        // Lage des Textblocks mit dem Scan vergleichen (obere und untere Kante)
-        let score = 0;
-        if (scanExt) {
-          const tmp = document.createElement('canvas');
-          tmp.width = W; tmp.height = H;
-          const tx = tmp.getContext('2d');
-          drawText(tx, fitText(tx, vp, textBox, o), symbols, { flavorBar: false });
-          const e = blockExtent(tmp, textBox, W, H, fScan);
-          score = e ? Math.abs(e.top - scanExt.top) + Math.abs(e.bottom - scanExt.bottom) : 1e9;
-        }
-        // erste Zeile (Wortlaut) zählt stärker als die Blocklage
-        const r = fit?.r || 0;
-        const total = score - r * 40;
-        if (globalThis.__fitDebug) console.log('variant', vi, JSON.stringify(fit), score, total);
-        if (!best || total < best.total - 4) best = { total, o, vp };
+      rulesVariants.forEach((vp, vi) => {
+        const r = results[vi] || fitRulesVariant({ vp, textBox, baseOpts, rules: L.rules, metrics: L.metrics, scan, W, H, symbols, key: rulesKey(vi) });
+        if (globalThis.__fitDebug) console.log('variant', vi, JSON.stringify(r.fit), r.total);
+        if (!best || r.total < best.total - 4) best = { total: r.total, o: r.o, vp };
       });
       textOpts = best.o;
       textParas = best.vp;
@@ -723,6 +744,7 @@ export async function renderCard(canvas, model, deps) {
     model.textCap = lay.cap;
   }
 
+  perfMark('text');
   // P/T bzw. Loyalität
   if (L.kind === 'pw') {
     drawPwShield(ctx, face.loyalty, L.shield);
@@ -743,6 +765,7 @@ export async function renderCard(canvas, model, deps) {
   if (flags.holo && !cc) drawHolo(ctx, L);
   drawInfo(ctx, model);
   ctx.restore();
+  perfMark('end');
   return model;
 }
 

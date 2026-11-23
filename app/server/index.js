@@ -1,3 +1,5 @@
+import cluster from 'node:cluster';
+import { availableParallelism } from 'node:os';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -74,4 +76,27 @@ app.use('/cc/img', express.static(CC_IMG_DIR, { fallthrough: false, maxAge: '7d'
 
 app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
 
-app.listen(PORT, () => console.log(`MTG Cardmaker läuft auf http://localhost:${PORT}`));
+// Ein Worker pro CPU-Kern (WEB_CONCURRENCY überschreibt die Anzahl). Die Worker teilen sich
+// den Port; der Festplatten-Cache ist prozessübergreifend (atomare Schreibvorgänge).
+export const WORKERS = Math.max(1, Number(process.env.WEB_CONCURRENCY) || availableParallelism());
+
+if (cluster.isPrimary && WORKERS > 1) {
+  console.log(`MTG Cardmaker: starte ${WORKERS} Worker auf http://localhost:${PORT}`);
+  for (let i = 0; i < WORKERS; i++) cluster.fork();
+  // abgestürzte Worker ersetzen (nicht beim regulären Beenden)
+  cluster.on('exit', (w, code, signal) => {
+    if (signal === 'SIGTERM' || signal === 'SIGINT' || code === 0) return;
+    console.error(`Worker ${w.process.pid} beendet (${signal || code}) – starte neu`);
+    cluster.fork();
+  });
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, () => {
+      for (const w of Object.values(cluster.workers)) w.process.kill(sig);
+      process.exit(0);
+    });
+  }
+} else {
+  app.listen(PORT, () => {
+    if (WORKERS === 1) console.log(`MTG Cardmaker läuft auf http://localhost:${PORT}`);
+  });
+}

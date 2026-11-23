@@ -19,6 +19,7 @@ export function setFontScales(map) {
   for (const [fam, x] of Object.entries(map)) SCALE.set(fam, x || 1);
 }
 export const scaleOf = (family) => SCALE.get(family) || 1;
+export const getFontScales = () => Object.fromEntries(SCALE);
 
 export const METRICS = {
   lineHeight: 1.545, // Grundlinienabstand

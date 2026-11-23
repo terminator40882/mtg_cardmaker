@@ -24,6 +24,7 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === '--out') opt.out = args[++i];
   else if (args[i] === '--json') opt.json = true;
   else if (args[i] === '--source') opt.source = args[++i];
+  else if (args[i] === '--noworkers') opt.noWorkers = true;
   else cards.push(args[i]);
 }
 if (!cards.length) {
@@ -51,6 +52,7 @@ async function resolve(spec) {
 const browser = await playwright.chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1600, height: 1200 } });
 page.on('pageerror', (e) => console.error('Seitenfehler:', e.message));
+if (opt.noWorkers) await page.addInitScript(() => { globalThis.__noWorkers = true; });
 await mkdir(opt.out, { recursive: true });
 const rows = [];
 

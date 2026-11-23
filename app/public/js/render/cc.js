@@ -1,3 +1,4 @@
+import { mkCanvas } from './canvas.js';
 // Rahmen aus den Card-Conjurer-Assets (Ordner Assets/, ausgeliefert unter /cc/img).
 //
 // Die Auswahl der Ebenen folgt der Auto-Frame-Logik von Card Conjurer
@@ -451,47 +452,90 @@ export async function loadLayers(layers) {
  * durch ihre Masken (Alpha-Schnittmenge) gezeichnet; unterste Ebene zuerst.
  * Zeichnet in Kartenkoordinaten (W × H) auf ctx; scale = Ausgabeauflösung.
  */
+const bboxCache = new WeakMap();
+/** Bounding Box (0..1) der deckenden Pixel eines Bildes – grob gemessen, gecacht. */
+function alphaBBox(img) {
+  if (bboxCache.has(img)) return bboxCache.get(img);
+  const w = 188; const h = 263;
+  const c = mkCanvas(w, h);
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(img, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data;
+  let x0 = w; let y0 = h; let x1 = -1; let y1 = -1;
+  for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) {
+    if (d[(y * w + xx) * 4 + 3] > 0) { if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  // eine Rasterzelle Sicherheitsrand
+  const r = x1 < 0 ? null : { x0: Math.max(0, (x0 - 1) / w), y0: Math.max(0, (y0 - 1) / h), x1: Math.min(1, (x1 + 2) / w), y1: Math.min(1, (y1 + 2) / h) };
+  bboxCache.set(img, r);
+  return r;
+}
+
+const frameCache = new Map();
+/** Rahmen vorab zusammensetzen (füllt den Cache) und die Rahmen-Canvas liefern. */
+export function prepareLayers(layers, W, H, scale, opts = {}) {
+  return drawLayers(null, layers, W, H, scale, opts);
+}
 export function drawLayers(ctx, layers, W, H, scale, { borderColor } = {}) {
   const cw = Math.round(W * scale);
   const ch = Math.round(H * scale);
-  const frame = document.createElement('canvas');
-  frame.width = cw; frame.height = ch;
-  const fx = frame.getContext('2d');
-  const tmp = document.createElement('canvas');
-  tmp.width = cw; tmp.height = ch;
-  const tx = tmp.getContext('2d');
-  fx.imageSmoothingQuality = 'high';
-  tx.imageSmoothingQuality = 'high';
-  for (const l of [...layers].reverse()) {
-    const b = l.bounds || { x: 0, y: 0, width: 1, height: 1 };
-    tx.globalCompositeOperation = 'source-over';
-    tx.clearRect(0, 0, cw, ch);
-    tx.fillStyle = '#000';
-    tx.fillRect(0, 0, cw, ch);
-    tx.globalCompositeOperation = 'source-in';
-    for (const m of l.maskImages || []) tx.drawImage(m, 0, 0, cw, ch);
-    const rect = [Math.round(b.x * cw), Math.round(b.y * ch), Math.round(b.width * cw), Math.round(b.height * ch)];
-    if (l.image) tx.drawImage(l.image, ...rect);
-    else {
-      tx.fillStyle = l.fill || '#000';
-      tx.fillRect(...rect);
+  // fertig zusammengesetzte Rahmen wiederverwenden (z. B. beim Umschalten von Optionen)
+  const key = `${cw}x${ch}|${borderColor || ''}|${layers.map((l) => `${l.src || l.fill}:${(l.masks || []).join(',')}:${JSON.stringify(l.bounds || '')}`).join(';')}`;
+  let frame = frameCache.get(key);
+  if (!frame) {
+    frame = mkCanvas(cw, ch);
+    const fx = frame.getContext('2d');
+    const tmp = mkCanvas(cw, ch);
+    const tx = tmp.getContext('2d');
+    fx.imageSmoothingQuality = 'high';
+    tx.imageSmoothingQuality = 'high';
+    for (const l of [...layers].reverse()) {
+      const b = l.bounds || { x: 0, y: 0, width: 1, height: 1 };
+      // nur das Rechteck bearbeiten, in dem die Ebene sichtbar sein kann (Bounds ∩ Masken)
+      let r = { x0: b.x, y0: b.y, x1: b.x + b.width, y1: b.y + b.height };
+      for (const m of l.maskImages || []) {
+        const mb = alphaBBox(m);
+        if (!mb) { r = null; break; }
+        r = { x0: Math.max(r.x0, mb.x0), y0: Math.max(r.y0, mb.y0), x1: Math.min(r.x1, mb.x1), y1: Math.min(r.y1, mb.y1) };
+      }
+      if (!r || r.x1 <= r.x0 || r.y1 <= r.y0) continue;
+      const px = Math.max(0, Math.floor(r.x0 * cw)); const py = Math.max(0, Math.floor(r.y0 * ch));
+      const pw = Math.min(cw, Math.ceil(r.x1 * cw)) - px; const ph = Math.min(ch, Math.ceil(r.y1 * ch)) - py;
+      tx.save();
+      tx.beginPath(); tx.rect(px, py, pw, ph); tx.clip();
+      tx.globalCompositeOperation = 'source-over';
+      tx.clearRect(px, py, pw, ph);
+      tx.fillStyle = '#000';
+      tx.fillRect(px, py, pw, ph);
+      tx.globalCompositeOperation = 'source-in';
+      for (const m of l.maskImages || []) tx.drawImage(m, 0, 0, cw, ch);
+      const rect = [Math.round(b.x * cw), Math.round(b.y * ch), Math.round(b.width * cw), Math.round(b.height * ch)];
+      if (l.image) tx.drawImage(l.image, ...rect);
+      else {
+        tx.fillStyle = l.fill || '#000';
+        tx.fillRect(...rect);
+      }
+      tx.restore();
+      fx.drawImage(tmp, px, py, pw, ph, px, py, pw, ph);
     }
-    fx.drawImage(tmp, 0, 0);
+    // Randfarbe (weiß/silber/gold): Card-Conjurer-Rahmen haben immer einen schwarzen Rand
+    if (borderColor) recolorBorder(fx, cw, ch, borderColor, layers);
+    if (frameCache.size >= 4) frameCache.delete(frameCache.keys().next().value);
+    frameCache.set(key, frame);
   }
-  // Randfarbe (weiß/silber/gold): Card-Conjurer-Rahmen haben immer einen schwarzen Rand
-  if (borderColor) recolorBorder(fx, cw, ch, borderColor, layers);
+  if (!ctx) return frame;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(frame, 0, 0);
   ctx.restore();
+  return frame;
 }
 
 /** Färbt die Border-Maske der Ebene "Border" (falls vorhanden) in der Randfarbe ein. */
 function recolorBorder(fx, cw, ch, color, layers) {
   const border = layers.find((l) => (l.masks || []).some((m) => /border\.(png|svg)$/i.test(m) || /MaskBorder\.png$/.test(m)));
   if (!border) return;
-  const c = document.createElement('canvas');
-  c.width = cw; c.height = ch;
+  const c = mkCanvas(cw, ch);
   const x = c.getContext('2d');
   for (const m of border.maskImages) x.drawImage(m, 0, 0, cw, ch);
   x.globalCompositeOperation = 'source-in';
@@ -539,8 +583,7 @@ export async function drawWatermark(ctx, model, L, scale) {
   const ar = (img.naturalWidth || img.width) / (img.naturalHeight || img.height);
   let w = b.w; let h = w / ar;
   if (h > b.h) { h = b.h; w = h * ar; }
-  const c = document.createElement('canvas');
-  c.width = Math.ceil(w * scale); c.height = Math.ceil(h * scale);
+  const c = mkCanvas(Math.ceil(w * scale), Math.ceil(h * scale));
   const x = c.getContext('2d');
   x.drawImage(img, 0, 0, c.width, c.height);
   x.globalCompositeOperation = 'source-in';
@@ -583,6 +626,29 @@ export async function ccPwIcons(tall, model) {
  * Helligkeits-Perzentil aus.
  * Muss nach dem Rahmen und vor Text/Symbolen aufgerufen werden.
  */
+const alphaCache = new WeakMap();
+/** Alphakanal einer Maske (Bild oder Rechteck) in der Größe w×h, gecacht. */
+function maskAlpha(reg, w, h) {
+  const keyObj = reg.img || reg;
+  let per = alphaCache.get(keyObj);
+  if (!per) { per = new Map(); alphaCache.set(keyObj, per); }
+  const key = `${w}x${h}|${reg.rect ? JSON.stringify(reg.rect) : ''}`;
+  if (per.has(key)) return per.get(key);
+  const c = mkCanvas(w, h);
+  const x = c.getContext('2d', { willReadFrequently: true });
+  if (reg.rect) {
+    const b = reg.rect;
+    if (reg.img) x.drawImage(reg.img, b.x * w, b.y * h, b.width * w, b.height * h);
+    else { x.fillStyle = '#000'; x.fillRect(b.x * w, b.y * h, b.width * w, b.height * h); }
+  } else x.drawImage(reg.img, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data;
+  const a = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) a[i] = d[i * 4 + 3];
+  if (per.size > 6) per.clear();
+  per.set(key, a);
+  return a;
+}
+
 export function matchFrameColors(ctx, layers, scan, W, H, exclude = [], extraRects = []) {
   const cv = ctx.canvas;
   const cw = cv.width; const ch = cv.height;
@@ -603,16 +669,20 @@ export function matchFrameColors(ctx, layers, scan, W, H, exclude = [], extraRec
   // Arbeitsauflösung 1/2 für die Statistik (dünne Konturen bleiben erfasst)
   const sw = Math.round(cw / 2); const sh = Math.round(ch / 2);
   const grab = (src, w, h) => {
-    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const c = mkCanvas(w, h);
     const x = c.getContext('2d', { willReadFrequently: true });
     x.drawImage(src, 0, 0, w, h);
     return x.getImageData(0, 0, w, h).data;
   };
+  const pm = (l) => { if (globalThis.__perf) globalThis.__perf.push(['  c:' + l, performance.now()]); };
+  pm('pre');
   const ours = grab(cv, sw, sh);
   const orig = grab(scan, sw, sh);
+  pm('grab');
   const ex = (px, py) => exclude.some((r) => px >= r.x * sw / W && px < (r.x + r.w) * sw / W && py >= r.y * sh / H && py < (r.y + r.h) * sh / H);
   const full = ctx.getImageData(0, 0, cw, ch);
   const fd = full.data;
+  pm('getfull');
   const claimed = new Uint8Array(cw * ch); // jeder Pixel nur einmal (oberste Ebene zuerst)
   // ausgeschlossene Bereiche (Artwork) nie verändern
   for (const r of exclude) {
@@ -621,61 +691,72 @@ export function matchFrameColors(ctx, layers, scan, W, H, exclude = [], extraRec
     for (let y = y0; y < y1; y++) claimed.fill(1, y * cw + x0, y * cw + x1);
   }
   for (const [, reg] of regions) {
-    // Maske in Arbeits- und in voller Auflösung
-    const mk = (w, h) => {
-      const c = document.createElement('canvas'); c.width = w; c.height = h;
-      const x = c.getContext('2d', { willReadFrequently: true });
-      if (reg.rect) {
-        const b = reg.rect;
-        if (reg.img) x.drawImage(reg.img, b.x * w, b.y * h, b.width * w, b.height * h);
-        else { x.fillStyle = '#000'; x.fillRect(b.x * w, b.y * h, b.width * w, b.height * h); }
-      } else x.drawImage(reg.img, 0, 0, w, h);
-      return x.getImageData(0, 0, w, h).data;
-    };
-    const ms = mk(sw, sh);
-    const po = []; const pr = [];
-    const inner = (i) => ms[i * 4 + 3] >= 200;
-    for (let i = 0; i < sw * sh; i++) {
+    // Maske in Arbeits- und in voller Auflösung (nur Alphakanal, je Bild und Größe gecacht –
+    // dieselben Masken kommen auf vielen Karten vor)
+    const mk = (w, h) => maskAlpha(reg, w, h);
+    pm('r'); const ms = mk(sw, sh); pm('ms');
+    const inner = (i) => ms[i] >= 200;
+    // nur innerhalb der Bounding Box der Maske arbeiten
+    const bb = reg.rect ? { x0: reg.rect.x, y0: reg.rect.y, x1: reg.rect.x + reg.rect.width, y1: reg.rect.y + reg.rect.height } : alphaBBox(reg.img);
+    if (!bb) continue;
+    const range2 = (w, h) => [Math.max(1, Math.floor(bb.x0 * w)), Math.max(1, Math.floor(bb.y0 * h)), Math.min(w - 1, Math.ceil(bb.x1 * w)), Math.min(h - 1, Math.ceil(bb.y1 * h))];
+    const [sx0, sy0, sx1, sy1] = range2(sw, sh);
+    // Durchgang 1: gültige Pixel (Inneres der Maske, nicht ausgeschlossen) + Helligkeitshistogramme
+    const idx = new Int32Array(Math.max(0, (sx1 - sx0) * (sy1 - sy0))); let n = 0;
+    const hO = new Uint32Array(256); const hR = new Uint32Array(256);
+    const L = (d, i) => (d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114) | 0;
+    for (let yy = sy0; yy < sy1; yy++) for (let i = yy * sw + sx0; i < yy * sw + sx1; i++) {
       // nur Pixel im Inneren der Maske (Nachbarn ebenfalls in der Maske) – sonst mischen sich bei
       // dünnen Konturen Nachbarbereiche und 1–2 px Versatz zum Scan ein
       if (!inner(i) || !inner(i - 1) || !inner(i + 1) || !inner(i - sw) || !inner(i + sw)) continue;
-      const px = i % sw; const py = Math.floor(i / sw);
-      if (ex(px, py) || orig[i * 4 + 3] < 250) continue;
-      po.push([ours[i * 4], ours[i * 4 + 1], ours[i * 4 + 2]]);
-      pr.push([orig[i * 4], orig[i * 4 + 1], orig[i * 4 + 2]]);
+      if (orig[i * 4 + 3] < 250 || (exclude.length && ex(i % sw, (i / sw) | 0))) continue;
+      idx[n++] = i; hO[L(ours, i)]++; hR[L(orig, i)]++;
     }
-    if (po.length < 40) continue;
-    // obere 60 % der Helligkeit (ohne Schrift/Symbole im Scan) – für beide gleich gewählt
-    const sel = (arr) => {
-      const l = arr.map((p) => p[0] * 0.299 + p[1] * 0.587 + p[2] * 0.114);
-      const t = [...l].sort((a, b) => a - b)[Math.floor(l.length * 0.4)];
-      return arr.filter((_, k) => l[k] >= t);
-    };
-    const so = sel(po); const sr = sel(pr);
+    if (n < 40) continue;
+    // obere 60 % der Helligkeit (ohne Schrift/Symbole im Scan) – je Bild eigenes 40-%-Perzentil
+    const pct = (hist) => { let acc = 0; const lim = Math.floor(n * 0.4); for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > lim) return v; } return 0; };
+    const tO = pct(hO); const tR = pct(hR);
+    // Durchgang 2: Summen für Mittelwert und Streuung je Kanal
+    const sO = new Float64Array(7); const sR = new Float64Array(7); // n, Summe r g b, Quadratsumme r g b
+    for (let j = 0; j < n; j++) {
+      const i = idx[j];
+      if (L(ours, i) >= tO) { sO[0]++; for (let k = 0; k < 3; k++) { const v = ours[i * 4 + k]; sO[1 + k] += v; sO[4 + k] += v * v; } }
+      if (L(orig, i) >= tR) { sR[0]++; for (let k = 0; k < 3; k++) { const v = orig[i * 4 + k]; sR[1 + k] += v; sR[4 + k] += v * v; } }
+    }
+    if (!sO[0] || !sR[0]) continue;
     // Mittelwert und Streuung je Kanal angleichen (Farbton, Helligkeit und Kontrast der Struktur)
-    const meanSd = (arr, k) => {
-      let m = 0; for (const p of arr) m += p[k]; m /= arr.length;
-      let v = 0; for (const p of arr) v += (p[k] - m) ** 2;
-      return [m, Math.sqrt(v / arr.length)];
-    };
     const tf = [0, 1, 2].map((k) => {
-      const [mo, so2] = meanSd(so, k); const [mr, sr2] = meanSd(sr, k);
+      const mo = sO[1 + k] / sO[0]; const mr = sR[1 + k] / sR[0];
+      const so2 = Math.sqrt(Math.max(0, sO[4 + k] / sO[0] - mo * mo)); const sr2 = Math.sqrt(Math.max(0, sR[4 + k] / sR[0] - mr * mr));
       const g = Math.max(0.5, Math.min(1.6, so2 > 1 ? sr2 / so2 : 1));
       return { mo, mr, g };
     });
     if (tf.every((t) => Math.abs(t.mr - t.mo) < 1 && Math.abs(t.g - 1) < 0.03)) continue;
-    const mf = mk(cw, ch);
-    for (let i = 0; i < cw * ch; i++) {
-      const a = mf[i * 4 + 3];
-      if (a < 8 || claimed[i]) continue;
-      if (a > 200) claimed[i] = 1;
-      const t = a / 255;
-      for (let k = 0; k < 3; k++) {
-        const v = fd[i * 4 + k];
-        const nv = tf[k].mr + (v - tf[k].mo) * tf[k].g;
-        fd[i * 4 + k] = Math.max(0, Math.min(255, v + (nv - v) * t));
+    pm('stats');
+    // Alpha in voller Auflösung aus der halb aufgelösten Maske interpolieren
+    // (spart je Bereich eine kartengroße Maske)
+    const [fx0, fy0, fx1, fy1] = range2(cw, ch);
+    const rx = sw / cw; const ry = sh / ch;
+    for (let yy = fy0; yy < fy1; yy++) {
+      const my = Math.min(sh - 1.001, Math.max(0, (yy + 0.5) * ry - 0.5)); const y0 = my | 0; const wy = my - y0;
+      for (let xx = fx0; xx < fx1; xx++) {
+        const i = yy * cw + xx;
+        if (claimed[i]) continue;
+        const mxp = Math.min(sw - 1.001, Math.max(0, (xx + 0.5) * rx - 0.5)); const x0 = mxp | 0; const wx = mxp - x0;
+        const j = y0 * sw + x0;
+        const a = (ms[j] * (1 - wx) + ms[j + 1] * wx) * (1 - wy) + (ms[j + sw] * (1 - wx) + ms[j + sw + 1] * wx) * wy;
+        if (a < 8) continue;
+        if (a > 200) claimed[i] = 1;
+        const t = a / 255;
+        for (let k = 0; k < 3; k++) {
+          const v = fd[i * 4 + k];
+          const nv = tf[k].mr + (v - tf[k].mo) * tf[k].g;
+          fd[i * 4 + k] = Math.max(0, Math.min(255, v + (nv - v) * t));
+        }
       }
     }
   }
+  pm('apply');
   ctx.putImageData(full, 0, 0);
+  pm('put');
 }

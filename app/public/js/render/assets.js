@@ -7,7 +7,13 @@ export function loadImage(url) {
     images.set(url, new Promise((resolve, reject) => {
       const img = new Image();
       img.decoding = 'async';
-      img.onload = () => resolve(img);
+      // Rastergrafiken sofort (parallel, außerhalb des Hauptthreads) dekodieren – sonst dekodiert der
+      // Browser die großen Rahmen-PNGs erst beim ersten Zeichnen, nacheinander im Hauptthread.
+      const svg = /svg/i.test(decodeURIComponent(url));
+      img.onload = () => {
+        if (svg || typeof createImageBitmap !== 'function') { resolve(img); return; }
+        createImageBitmap(img).then(resolve, () => resolve(img));
+      };
       img.onerror = () => { images.delete(url); reject(new Error(`Bild nicht ladbar: ${url}`)); };
       img.src = url;
     }));

@@ -14,8 +14,8 @@ const rgba = (hex, a) => `rgba(${hexToRgb(hex).join(',')},${a})`;
 /** Teil eines Bildes als eigenes Canvas (z. B. eine Hälfte des Split-Artworks). */
 function cropImage(img, x0, x1) {
   if (!img) return null;
-  const w = img.naturalWidth;
-  const h = img.naturalHeight;
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
   const c = document.createElement('canvas');
   c.width = Math.round(w * (x1 - x0));
   c.height = h;

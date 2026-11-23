@@ -84,6 +84,11 @@ automatische Layout.
 Jeder Rahmenbereich (Textfeld, Namens-/Typleiste, Rahmen, Kontur, P/T-Box – je Maske der Card-Conjurer-Ebene)
 wird in Mittelwert und Streuung je Farbkanal an den Scan angeglichen (Farbton, Helligkeit, Kontrast der Struktur).
 
+**Leistung:** Der Server startet einen Worker-Prozess je CPU-Kern (Node `cluster`, Anzahl per `WEB_CONCURRENCY`);
+API-Anfragen an Scryfall bleiben insgesamt bei ~9/s, Bilder vom CDN (`*.scryfall.io`, ohne Rate-Limit) werden parallel
+geladen. Im Browser laufen Schriftgrößen-Bestimmung und Artwork-Ausrichtung in Web Workern parallel zum Zeichnen des
+Rahmens; Bilder werden parallel dekodiert (`createImageBitmap`), Rahmen und Masken je Sitzung gecacht.
+
 **Delta messen:** `node tools/delta.mjs --url http://localhost:8080 m19/156 grn/192 …` rendert die Karten im
 Browser (Playwright), vergleicht sie mit dem Scryfall-PNG und gibt die mittlere absolute Abweichung (0–255) je
 Bereich aus; pro Karte entsteht ein Bild Nachbau | Original | Differenz.

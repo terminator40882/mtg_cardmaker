@@ -8,6 +8,8 @@ services:
       # Scryfall verlangt einen aussagekräftigen User-Agent
       SCRYFALL_USER_AGENT: "MTGCardmaker/0.1 (self-hosted)"
       CC_ASSETS_DIR: /assets
+      # Anzahl Server-Prozesse (Standard: ein Worker je CPU-Kern)
+      # WEB_CONCURRENCY: 4
     volumes:
       # Cache für Scryfall-Daten, Artworks und Symbole
       - cardmaker-data:/data

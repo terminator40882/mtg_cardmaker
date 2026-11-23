@@ -512,3 +512,56 @@ export function boxEdges(src, W, H, box) {
   if (T == null || B == null) return null;
   return { L, R, T, B };
 }
+
+// ---------- Schriftfarbe aus dem Scan ----------
+
+/**
+ * Bestimmt die Farbe einer Textzeile im Scan: draw(ctx) zeichnet die Zeile (weiß) an ihrer
+ * Position in Kartenkoordinaten; gemessen wird im Kern der Buchstaben (erodierte Maske), damit
+ * Schatten und Hintergrund nicht einfließen. Liefert '#rrggbb' oder null.
+ */
+export function sampleTextColor(scan, W, H, region, draw) {
+  if (!scan) return null;
+  const f = Math.min(1, (scan.naturalWidth || scan.width) / W * 2);
+  const w = Math.round(region.w * f); const h = Math.round(region.h * f);
+  if (w < 4 || h < 4) return null;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.setTransform(f, 0, 0, f, -region.x * f, -region.y * f);
+  draw(x);
+  const m = x.getImageData(0, 0, w, h).data;
+  const s = document.createElement('canvas');
+  s.width = w; s.height = h;
+  const sx = s.getContext('2d', { willReadFrequently: true });
+  const sw = scan.naturalWidth || scan.width; const sh = scan.naturalHeight || scan.height;
+  sx.drawImage(scan, region.x * sw / W, region.y * sh / H, region.w * sw / W, region.h * sh / H, 0, 0, w, h);
+  const d = sx.getImageData(0, 0, w, h).data;
+  // Hintergrund: Median der ganzen Region; Schrift: Pixel im (leicht erweiterten) Buchstabenbereich,
+  // die deutlich heller bzw. dunkler als der Hintergrund sind – die größere Gruppe ist die Schrift
+  const L = (i) => d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+  const all = []; for (let i = 0; i < w * h; i++) all.push(L(i * 4));
+  const bg = [...all].sort((p, q) => p - q)[Math.floor(all.length / 2)];
+  const near = (px, py) => {
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const qx = px + dx; const qy = py + dy;
+      if (qx >= 0 && qy >= 0 && qx < w && qy < h && m[(qy * w + qx) * 4 + 3] > 128) return true;
+    }
+    return false;
+  };
+  const light = [[], [], []]; const dark = [[], [], []];
+  for (let py = 0; py < h; py++) {
+    for (let px = 0; px < w; px++) {
+      if (!near(px, py)) continue;
+      const i = (py * w + px) * 4; const l = L(i);
+      const grp = l > bg + Math.min(45, (255 - bg) * 0.5) ? light : l < bg - 45 ? dark : null;
+      if (grp) { grp[0].push(d[i]); grp[1].push(d[i + 1]); grp[2].push(d[i + 2]); }
+    }
+  }
+  // Schatten liegen meist außerhalb; helle Schrift mit Schatten: helle Gruppe muss deutlich vertreten sein
+  const pick = light[0].length > dark[0].length * 0.35 ? light : dark;
+  const r = pick[0]; const g = pick[1]; const b = pick[2];
+  const med = (a) => a.sort((p, q) => p - q)[Math.floor(a.length / 2)];
+  const hex = (v) => Math.round(v).toString(16).padStart(2, '0');
+  return `#${hex(med(r))}${hex(med(g))}${hex(med(b))}`;
+}

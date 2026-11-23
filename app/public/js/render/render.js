@@ -13,7 +13,7 @@ import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT } from './dfc.js';
 import { renderLandscape } from './landscape.js';
 import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield, setPwIcons } from './planeswalker.js';
 import { ccStatus, ccLayers, loadLayers, drawLayers, ccArtBounds, drawWatermark, ccPwIcons, matchFrameColors } from './cc.js';
-import { alignArt, fitTextToScan, blockExtent, scanLines, boxEdges } from './align.js';
+import { alignArt, fitTextToScan, blockExtent, scanLines, boxEdges, sampleTextColor } from './align.js';
 
 export { W, H };
 
@@ -62,7 +62,7 @@ export function buildModel(card, set, opts) {
   if (pf?.text) face.oracle_text = cleanPrinted(pf.text);
   if (pf?.type) face.type_line = pf.type.replace(/ [–-] /g, ' — ');
   face.printed = !!pf?.text;
-  face.type_line = historicTypeLine(face.type_line, card.released_at || '', face.oracle_text);
+  face.type_line = historicTypeLine(face.type_line, card.released_at || '', face.oracle_text, f.oracle_text ?? card.oracle_text ?? '');
   // "Æther" wurde erst mit Kaladesh (2016) zu "Aether" vereinheitlicht
   if ((card.released_at || '') < '2016-09-30') face.name = face.name.replace(/\bAether/g, 'Æther');
   type = face.type_line;
@@ -465,8 +465,14 @@ export async function renderCard(canvas, model, deps) {
   const retro = L.style === 'retro';
   // Rückseiten von Transform-Karten haben dunkle Leisten mit weißer Schrift
   const darkBack = model.card.layout === 'transform' && model.faceIdx === 1 && L.style === 'm15';
-  const headColor = darkBack ? '#ffffff' : retro ? (luminance(model.palettes[0].retroTex[1]) > 0.55 ? '#111' : '#fbfaf6') : '#111';
-  const headShadow = retro && headColor !== '#111' ? 'rgba(0,0,0,0.9)' : null;
+  let headColor = darkBack ? '#ffffff' : retro ? (luminance(model.palettes[0].retroTex[1]) > 0.55 ? '#111' : '#fbfaf6') : '#111';
+  // Schriftfarbe von Name/Typzeile aus dem Scan (z. B. weiße Titel mit Schatten auf hellen Ice-Age-Rahmen)
+  const sampleHead = (t, fam, cap, x, base, maxW) => (opts.alignArt && scan && opts.matchColors !== false
+    ? sampleTextColor(scan, W, H, { x: x - 10, y: base - cap * 1.6, w: Math.min(maxW, 900) + 20, h: cap * 2.1 },
+      (c) => drawFittedLine(c, t, fam, cap, x, base, maxW, { color: '#fff' })) : null);
+  const sampledName = sampleHead(smartQuotes(face.name), L.nameText.family, L.nameText.cap, L.nameText.x, L.nameText.baseline, L.nameText.right - L.nameText.x - 200);
+  if (sampledName) headColor = sampledName;
+  const headShadow = (retro || darkBack) && luminance(headColor) > 0.45 ? 'rgba(0,0,0,0.9)' : null;
 
   // Name + Manakosten
   const costCodes = symbolsIn(face.mana_cost);
@@ -840,7 +846,7 @@ function similarText(a, b) {
  *   Auren als "Enchant Creature/Land/…"
  * - Planeswalker vor Amonkhet (2017) ohne "Legendary"
  */
-export function historicTypeLine(type, released, text = '') {
+export function historicTypeLine(type, released, text = '', oracle = '') {
   let t = type;
   if (released && released < '2017-04-28' && /\bPlaneswalker\b/.test(t)) t = t.replace(/^Legendary /, '');
   // "Kindred" hieß bis Mitte 2024 "Tribal"
@@ -849,10 +855,11 @@ export function historicTypeLine(type, released, text = '') {
     let m;
     if ((m = /^Legendary Creature — (.+)$/.exec(t))) t = 'Summon Legend';
     else if ((m = /^Creature — (.+)$/.exec(t))) t = `Summon ${m[1]}`;
-    else if (/^Enchantment — Aura/.test(t)) {
-      const what = /^Enchant (\w+)/m.exec(text);
-      if (what) t = `Enchant ${what[1][0].toUpperCase()}${what[1].slice(1)}`;
-    }
+  }
+  // Auren hießen bis zur 9. Edition (Juli 2005) "Enchant Creature/Land/…"
+  if (released && released < '2005-07-29' && /^Enchantment — Aura/.test(t)) {
+    const what = /^Enchant (\w+)/m.exec(text) || /^Enchant (\w+)/m.exec(oracle);
+    if (what) t = `Enchant ${what[1][0].toUpperCase()}${what[1].slice(1)}`;
   }
   return t;
 }

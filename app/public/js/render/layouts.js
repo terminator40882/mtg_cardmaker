@@ -67,12 +67,13 @@ export const LAYOUTS = {
     artBevel: 14,
     box: { x: 156, y: 1258, w: 1185, h: 609 },
     text: { x: 197, y: 1286, w: 1104, h: 556 },
-    nameText: { x: 167, right: 1371, baseline: 164, cap: 55, family: 'CMRetroTitle' },
-    typeText: { x: 164, right: 1330, baseline: 1227, cap: 42, family: 'CMRetroTitle' },
+    nameText: { x: 164, right: 1371, baseline: 165, cap: 60, family: 'CMRetroTitle' }, // an 20 Scans nachgemessen
+    // Typzeile und P/T sind auf alten Karten in der Regeltext-Schrift (MPlantin) gesetzt
+    typeText: { x: 164, right: 1330, baseline: 1227, cap: 42, family: 'CMRules' },
     // an 20 Scans nachgemessen: Ø ~66 px, Abstand ~14 px
     cost: { d: 68, gap: 12, right: 1380, cy: 143, shadow: { dx: -2, dy: 3 } },
     setSym: { right: 1332, cy: 1206, h: 72, maxW: 130 },
-    pt: { cap: 57, family: 'CMRetroTitle', cx: 1306, baseline: 1959 },
+    pt: { cap: 57, family: 'CMRules', cx: 1306, baseline: 1959 },
     rules: { maxCap: 48, minCap: 16 },
     metrics: { lineHeight: 1.56, paraGap: 0.6, flavorGap: 1.0, flavorBar: null },
     info: { artistBaseline: 1927, artistCap: 33, artistAlign: 'center', smallBaseline: 1970, smallCap: 18 },
@@ -88,12 +89,12 @@ export const LAYOUTS = {
     box: { x: 189, y: 1280, w: 1114, h: 568 },
     boxBevel: 26,
     text: { x: 216, y: 1300, w: 1060, h: 528 },
-    nameText: { x: 124, right: 1361, baseline: 139, cap: 51, family: 'CMRetroTitle' },
-    typeText: { x: 133, right: 1358, baseline: 1224, cap: 45, family: 'CMRetroTitle' },
+    nameText: { x: 119, right: 1361, baseline: 146, cap: 57, family: 'CMRetroTitle' }, // an 16 Scans nachgemessen
+    typeText: { x: 133, right: 1358, baseline: 1224, cap: 45, family: 'CMRules' },
     // an 16 Scans nachgemessen: Ø ~66 px, Abstand ~16 px, ohne Schatten
     cost: { d: 68, gap: 14, right: 1378, cy: 128 },
     setSym: { right: 1358, cy: 1204, h: 64, maxW: 120 },
-    pt: { cap: 55, family: 'CMRetroTitle', cx: 1290, baseline: 1936 },
+    pt: { cap: 55, family: 'CMRules', cx: 1290, baseline: 1936 },
     rules: { maxCap: 50, minCap: 16, centerShort: 4 }, // bis Legends/4th: kurze Texte (≤ 4 Zeilen) zentriert
     metrics: { lineHeight: 1.66, paraGap: 0.6, flavorGap: 1.0, flavorBar: null },
     info: { artistBaseline: 1936, artistCap: 33, artistAlign: 'left', artistX: 133, smallBaseline: 1977, smallCap: 17 },

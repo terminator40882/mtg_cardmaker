@@ -614,6 +614,12 @@ export function matchFrameColors(ctx, layers, scan, W, H, exclude = [], extraRec
   const full = ctx.getImageData(0, 0, cw, ch);
   const fd = full.data;
   const claimed = new Uint8Array(cw * ch); // jeder Pixel nur einmal (oberste Ebene zuerst)
+  // ausgeschlossene Bereiche (Artwork) nie verändern
+  for (const r of exclude) {
+    const x0 = Math.max(0, Math.floor(r.x * cw / W)); const x1 = Math.min(cw, Math.ceil((r.x + r.w) * cw / W));
+    const y0 = Math.max(0, Math.floor(r.y * ch / H)); const y1 = Math.min(ch, Math.ceil((r.y + r.h) * ch / H));
+    for (let y = y0; y < y1; y++) claimed.fill(1, y * cw + x0, y * cw + x1);
+  }
   for (const [, reg] of regions) {
     // Maske in Arbeits- und in voller Auflösung
     const mk = (w, h) => {

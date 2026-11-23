@@ -437,7 +437,9 @@ export async function renderCard(canvas, model, deps) {
     if (opts.alignArt && opts.matchColors !== false && scan && model.artAligned) {
       // maskenlose 1993er-Rahmen: Textfeld als eigener Bereich (Legends/Revised haben andere Töne)
       const rects = L.style === 'retro' && L.variant === '93' && L.box
-        ? [{ x: (L.box.x + 10) / W, y: (L.box.y + 10) / H, width: (L.box.w - 20) / W, height: (L.box.h - 20) / H }] : [];
+        ? [{ x: (L.box.x + 10) / W, y: (L.box.y + 10) / H, width: (L.box.w - 20) / W, height: (L.box.h - 20) / H },
+          // übriger Rahmen innerhalb des Rands (Legends/Revised haben andere Rahmentöne als die Vorlage)
+          { x: 90 / W, y: 90 / H, width: (W - 180) / W, height: (H - 180) / H }] : [];
       matchFrameColors(ctx, cc, scan, W, H, [box], rects);
     }
     if (opts.watermark !== false) await drawWatermark(ctx, model, L, scale);
@@ -488,7 +490,7 @@ export async function renderCard(canvas, model, deps) {
   // Typzeile + Set-Symbol
   const plainSymbol = (model.card.released_at || '9999') < '1998-06-01';
   const symW = drawSetSymbol(ctx, setIcon, model.card.rarity, { ...L.setSym, outline: L.setSym.outline ?? (retro ? 3 : 4), plain: plainSymbol,
-    scan: opts.alignArt ? scan : null, W, H });
+    scan: opts.alignArt ? scan : null, W, H, fixedSize: L.style === 'm15' });
   const T = L.typeText;
   // Farbindikator (Punkt vor der Typzeile, z. B. Rückseiten von DFCs) – Card Conjurer m15/ciPips
   const ciShift = face.color_indicator && L.style !== 'retro' ? await drawColorIndicator(ctx, face.color_indicator, T) : 0;

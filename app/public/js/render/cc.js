@@ -291,11 +291,13 @@ const PACKS = {
     file: (l) => `${P}/planeswalker/regular/planeswalkerFrame${l}.png`, letters: 'WUBRGMA',
     masks: { Pinline: `${P}/planeswalker/regular/planeswalkerMaskPinline.png`, Title: `${P}/planeswalker/regular/planeswalkerMaskTitle.png`, Type: `${P}/planeswalker/regular/planeswalkerMaskType.png` },
     art: { x: 0.068, y: 0.101, width: 0.864, height: 0.8143 },
+    stampGap: { sx: 379 / 1500, sxRight: 1121 / 1500, x0: 381 / 1500, x1: 1119 / 1500, y0: 1918 / 2100, y1: 1990 / 2100 },
   },
   pw4: {
     file: (l) => `${P}/planeswalker/tall/planeswalkerTall${l}.png`, letters: 'WUBRGMAL',
     masks: { Pinline: `${P}/planeswalker/tall/planeswalkerTallMaskPinline.png`, Title: `${P}/planeswalker/regular/planeswalkerMaskTitle.png`, Type: `${P}/planeswalker/tall/planeswalkerTallMaskType.png` },
     art: { x: 0.068, y: 0.101, width: 0.864, height: 0.8143 },
+    stampGap: { sx: 379 / 1500, sxRight: 1121 / 1500, x0: 381 / 1500, x1: 1119 / 1500, y0: 1918 / 2100, y1: 1990 / 2100 },
   },
   saga: {
     file: (l) => (l === 'L' ? `${P}/saga/regular/l.png` : `${P}/saga/regular/sagaFrame${l}.png`), letters: 'WUBRGMAL',
@@ -362,6 +364,14 @@ function packStack(pack, p, { legendary, stamp, leftPage = null, flipside = null
       : m15Layer(p.pt, 'PT', false, 'regular'));
   }
   if (stamp) out.push(pack.stamp ? { ...pack.stamp, masks: [] } : m15Layer(p.frame, 'Stamp', false, 'regular'));
+  // Planeswalker ohne Holo-Stempel: das Rahmenbild hat im weißen Band unter dem Textfeld eine
+  // schwarze Aussparung für den Stempel (x 385–1115) -> mit der Bandspalte daneben schließen,
+  // damit die Rahmenkante durchgehend gerade ist (als gäbe es den Stempel nicht)
+  // (je Hälfte die angrenzende Spalte: zweifarbige Rahmen haben links und rechts eigene Farben)
+  if (!stamp && pack.stampGap) {
+    const g = pack.stampGap;
+    out.unshift({ patchColumn: { ...g, x1: 0.5 }, masks: [] }, { patchColumn: { ...g, sx: g.sxRight, x0: 0.5 }, masks: [] });
+  }
   if (p.pinlineRight) out.push(F(p.pinlineRight, 'Pinline', true));
   out.push(F(p.pinline, 'Pinline'));
   out.push(F(p.typeTitle, 'Type'));
@@ -524,7 +534,7 @@ export function drawLayers(ctx, layers, W, H, scale, { borderColor } = {}) {
   const cw = Math.round(W * scale);
   const ch = Math.round(H * scale);
   // fertig zusammengesetzte Rahmen wiederverwenden (z. B. beim Umschalten von Optionen)
-  const key = `${cw}x${ch}|${borderColor || ''}|${layers.map((l) => `${l.src || l.fill}:${(l.masks || []).map((m) => (typeof m === 'string' ? m : m.key)).join(',')}:${JSON.stringify(l.bounds || '')}`).join(';')}`;
+  const key = `${cw}x${ch}|${borderColor || ''}|${layers.map((l) => `${l.src || l.fill || JSON.stringify(l.patchColumn || '')}:${(l.masks || []).map((m) => (typeof m === 'string' ? m : m.key)).join(',')}:${JSON.stringify(l.bounds || '')}`).join(';')}`;
   let frame = frameCache.get(key);
   if (!frame) {
     frame = mkCanvas(cw, ch);
@@ -534,6 +544,18 @@ export function drawLayers(ctx, layers, W, H, scale, { borderColor } = {}) {
     fx.imageSmoothingQuality = 'high';
     tx.imageSmoothingQuality = 'high';
     for (const l of [...layers].reverse()) {
+      if (l.patchColumn) {
+        // eine Pixelspalte des bisher zusammengesetzten Rahmens über [x0, x1] strecken
+        const pc = l.patchColumn;
+        const sy = Math.round(pc.y0 * ch); const sh = Math.round((pc.y1 - pc.y0) * ch);
+        const col = mkCanvas(1, sh);
+        col.getContext('2d').drawImage(frame, Math.round(pc.sx * cw), sy, 1, sh, 0, 0, 1, sh);
+        fx.save();
+        fx.imageSmoothingEnabled = false;
+        fx.drawImage(col, 0, 0, 1, sh, Math.round(pc.x0 * cw), sy, Math.round((pc.x1 - pc.x0) * cw), sh);
+        fx.restore();
+        continue;
+      }
       const b = l.bounds || { x: 0, y: 0, width: 1, height: 1 };
       // nur das Rechteck bearbeiten, in dem die Ebene sichtbar sein kann (Bounds ∩ Masken)
       let r = { x0: b.x, y0: b.y, x1: b.x + b.width, y1: b.y + b.height };
@@ -699,11 +721,18 @@ export function matchFrameColors(ctx, layers, scan, W, H, exclude = [], extraRec
   const cw = cv.width; const ch = cv.height;
   // Bereiche: erste Maske je Ebene (ohne Rechte-Hälfte-Maske) bzw. Rechteck (bounds)
   const regions = new Map();
+  // zweifarbige Rahmen: dieselbe Maske links und rechts (Rechte-Hälfte-Maske) mit verschiedenen
+  // Farben -> je Hälfte ein eigener Bereich, sonst mischt die Statistik beide Farben
+  const isRight = (l) => (l.masks || []).some((m) => typeof m === 'string' && /maskRightHalf/.test(m));
+  const firstMask = (l) => (l.masks || []).find((m) => typeof m === 'string' && !/maskRightHalf/.test(m));
+  const split = new Set(layers.filter(isRight).map(firstMask).filter(Boolean));
   for (const l of layers) {
-    const src = (l.masks || []).find((m) => typeof m === 'string' && !/maskRightHalf/.test(m));
+    const src = firstMask(l);
     if (src) {
       const i = l.masks.indexOf(src);
-      if (!regions.has(src)) regions.set(src, { img: l.maskImages[i] });
+      const half = split.has(src) ? (isRight(l) ? 'R' : 'L') : null;
+      const key = half ? `${src}|${half}` : src;
+      if (!regions.has(key)) regions.set(key, { img: l.maskImages[i], half });
     } else if (l.bounds && l.image) {
       regions.set(`rect:${JSON.stringify(l.bounds)}`, { rect: l.bounds, img: l.image });
     }
@@ -750,7 +779,9 @@ export function matchFrameColors(ctx, layers, scan, W, H, exclude = [], extraRec
     const idx = new Int32Array(Math.max(0, (sx1 - sx0) * (sy1 - sy0))); let n = 0;
     const hO = new Uint32Array(256); const hR = new Uint32Array(256);
     const L = (d, i) => (d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114) | 0;
-    for (let yy = sy0; yy < sy1; yy++) for (let i = yy * sw + sx0; i < yy * sw + sx1; i++) {
+    // Hälfte (zweifarbige Rahmen): nur links bzw. rechts der Kartenmitte
+    const hx0 = reg.half === 'R' ? Math.ceil(sw / 2) : 0; const hx1 = reg.half === 'L' ? Math.floor(sw / 2) : sw;
+    for (let yy = sy0; yy < sy1; yy++) for (let i = yy * sw + Math.max(sx0, hx0); i < yy * sw + Math.min(sx1, hx1); i++) {
       // nur Pixel im Inneren der Maske (Nachbarn ebenfalls in der Maske) – sonst mischen sich bei
       // dünnen Konturen Nachbarbereiche und 1–2 px Versatz zum Scan ein
       if (!inner(i) || !inner(i - 1) || !inner(i + 1) || !inner(i - sw) || !inner(i + sw)) continue;
@@ -780,7 +811,9 @@ export function matchFrameColors(ctx, layers, scan, W, H, exclude = [], extraRec
     pm('stats');
     // Alpha in voller Auflösung aus der halb aufgelösten Maske interpolieren
     // (spart je Bereich eine kartengroße Maske)
-    const [fx0, fy0, fx1, fy1] = range2(cw, ch);
+    let [fx0, fy0, fx1, fy1] = range2(cw, ch);
+    if (reg.half === 'R') fx0 = Math.max(fx0, Math.ceil(cw / 2));
+    if (reg.half === 'L') fx1 = Math.min(fx1, Math.floor(cw / 2));
     const rx = sw / cw; const ry = sh / ch;
     for (let yy = fy0; yy < fy1; yy++) {
       const my = Math.min(sh - 1.001, Math.max(0, (yy + 0.5) * ry - 0.5)); const y0 = my | 0; const wy = my - y0;

@@ -29,7 +29,7 @@ export function facesOf(card) {
 
 /**
  * Baut das Render-Modell.
- * opts: { face, frame, border, showFlavor, showReminder, footer, art: {zoom,dx,dy}, artUrl, fontCap, flavorBar }
+ * opts: { face, frame, border, showFlavor, showReminder, footer, art: {zoom,dx,dy}, artUrl, fontCap, flavorBar, holoStamp }
  */
 export function buildModel(card, set, opts) {
   const faces = facesOf(card);
@@ -116,7 +116,8 @@ export function buildModel(card, set, opts) {
       vehicle: /\bVehicle\b/.test(type),
       planeswalker: loyalty != null && /\bPlaneswalker\b/.test(type),
       basic: /\bBasic\b/.test(type) && /\bLand\b/.test(type),
-      holo: (card.rarity === 'rare' || card.rarity === 'mythic') && (LAYOUTS[layoutName] || LAYOUTS.m15).style === 'm15' && (card.released_at || '') >= '2014-07-18',
+      // Holo-Stempel (samt Bogen der Rahmenkante darüber) nur auf Wunsch – Standard: ohne, Rahmenkante gerade
+      holo: opts.holoStamp === true && (card.rarity === 'rare' || card.rarity === 'mythic') && (LAYOUTS[layoutName] || LAYOUTS.m15).style === 'm15' && (card.released_at || '') >= '2014-07-18',
     },
     opts,
   };

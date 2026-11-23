@@ -129,6 +129,7 @@ function currentOptions(scale = 1) {
     printedText: $('opt-printed').checked,
     fontCap: Number($('opt-size').value) || null,
     flavorBar: $('opt-flavorbar').checked,
+    holoStamp: $('opt-stamp').checked,
     footer: $('opt-footer').value.trim(),
     art: { zoom: Number($('art-zoom').value), dx: Number($('art-dx').value), dy: Number($('art-dy').value) },
     artUrl: api.artUrl(state.card.id, hasFaceArt ? face : 0),
@@ -173,7 +174,7 @@ function scheduleRender() {
   });
 }
 
-for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-reminder', 'opt-printed', 'opt-size', 'opt-source', 'opt-frame', 'opt-border', 'opt-footer', 'opt-align', 'opt-copylayout', 'opt-matchcolors', 'art-zoom', 'art-dx', 'art-dy']) {
+for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-stamp', 'opt-reminder', 'opt-printed', 'opt-size', 'opt-source', 'opt-frame', 'opt-border', 'opt-footer', 'opt-align', 'opt-copylayout', 'opt-matchcolors', 'art-zoom', 'art-dx', 'art-dy']) {
   $(id).addEventListener('input', scheduleRender);
 }
 $('opt-face').addEventListener('input', () => { updateOriginal(); scheduleRender(); });

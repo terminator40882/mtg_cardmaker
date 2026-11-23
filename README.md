@@ -26,7 +26,8 @@ Danach im Browser: <http://localhost:8080> (Direktlink: `http://localhost:8080/?
     **Inverted** (durchscheinendes Textfeld, weiße Schrift).
   - Farben: Mono, Gold (zweifarbig mit geteilter Innenkante), Hybrid (geteilter Rahmen), Artefakt, farbige Artefakte,
     Länder (mit Farbakzent), farblos, Vehikel.
-  - Legendary-Krone (ab Dominaria 2018), P/T-Box, Standardländer (großes Manasymbol), Holo-Siegel,
+  - Legendary-Krone (ab Dominaria 2018), P/T-Box, Standardländer (großes Manasymbol), Holo-Stempel
+    (optional, Standard aus – dann ohne Stempel und ohne Bogen der Rahmenkante, auch bei Planeswalkern),
     Randfarbe (schwarz/weiß/silber/gold).
   - Offizielles Set-Symbol in Seltenheitsfarbe (Card Conjurer, sonst Scryfall); Sammlerinfo im jeweiligen Stil (inkl. neuem Format ab 2023).
 - **Textsatz** – an Scans echter Karten vermessen und per Pixel-Overlay geprüft (Grundlinien ±4 px):
@@ -58,7 +59,7 @@ gespeist aus den Scryfall-Daten des gewählten Drucks:
 
 | Scryfall | Card-Conjurer-Pack |
 |---|---|
-| Rahmen 2015 | M15 „new“ (inkl. Legendary-Krone, Nyx, Snow, Devoid, Fahrzeug, Holo-Stempel, Land-/Hybrid-/Gold-Varianten) |
+| Rahmen 2015 | M15 „new“ (inkl. Legendary-Krone, Nyx, Snow, Devoid, Fahrzeug, optional Holo-Stempel, Land-/Hybrid-/Gold-Varianten) |
 | Rahmen 2015 + Transform / Modal DFC | M15 Transform Front/Back, Modal Front/Back |
 | Planeswalker (3 / 4 Fähigkeiten) | Planeswalker Regular / Tall inkl. Loyalitäts-Symbole und Fähigkeitszeilen |
 | Saga, Class, Adventure | Saga Regular, Class, Adventure (inkl. Kapitel-Symbolen, Level-Leisten, Buchseite in Abenteuerfarbe) |
@@ -101,7 +102,8 @@ Regeltext weiß mit Schatten. Sonst wird die Farbe des Regeltexts am Scan gemess
 
 **Farbabgleich** (Option, Standard an): Druckfarben sind dunkler und satter als die Card-Conjurer-Grafiken.
 Jeder Rahmenbereich (Textfeld, Namens-/Typleiste, Rahmen, Kontur, P/T-Box – je Maske der Card-Conjurer-Ebene)
-wird in Mittelwert und Streuung je Farbkanal an den Scan angeglichen (Farbton, Helligkeit, Kontrast der Struktur).
+wird in Mittelwert und Streuung je Farbkanal an den Scan angeglichen (Farbton, Helligkeit, Kontrast der Struktur);
+bei zweifarbigen Rahmen linke und rechte Hälfte getrennt.
 
 **Leistung:** Der Server startet einen Worker-Prozess je CPU-Kern (Node `cluster`, Anzahl per `WEB_CONCURRENCY`);
 API-Anfragen an Scryfall bleiben insgesamt bei ~9/s, Bilder vom CDN (`*.scryfall.io`, ohne Rate-Limit) werden parallel

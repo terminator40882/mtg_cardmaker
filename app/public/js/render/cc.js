@@ -295,7 +295,7 @@ const PACKS = {
   },
   adventure: {
     file: (l) => `${P}/adventure/regular/${lc(l)}.png`, letters: 'WUBRGMAL',
-    masks: { Pinline: `${P}/adventure/regular/pinline.svg`, Title: `${P}/m15/regular/m15MaskTitle.png`, Type: `${P}/m15/regular/m15MaskType.png`, Rules: `${P}/adventure/regular/book.svg` },
+    masks: { Pinline: `${P}/adventure/regular/pinline.svg`, Title: `${P}/m15/regular/m15MaskTitle.png`, Type: `${P}/m15/regular/m15MaskType.png`, Rules: `${P}/adventure/regular/book.svg`, RulesLeft: `${P}/adventure/regular/bookLeft.png` },
     art: ART_M15, pt: true,
   },
   transformFront: {
@@ -310,12 +310,12 @@ const PACKS = {
   },
   modalFront: {
     file: (l) => `${P}/modal/regular/${lc(l)}.png`, letters: 'WUBRGMAL',
-    masks: { Pinline: `${P}/modal/regular/pinline.svg`, Title: `${P}/modal/regular/title.svg`, Type: `${P}/m15/regular/m15MaskType.png`, Rules: `${P}/modal/regular/textbox.svg` },
+    masks: { Pinline: `${P}/modal/regular/pinline.svg`, Title: `${P}/modal/regular/title.svg`, Type: `${P}/m15/regular/m15MaskType.png`, Rules: `${P}/modal/regular/textbox.svg`, Flipside: `${P}/modal/regular/reminder.svg` },
     art: ART_M15, pt: true, crown: true,
   },
   modalBack: {
     file: (l) => `${P}/modal/regular/${lc(l)}b.png`, letters: 'WUBRGMAL',
-    masks: { Pinline: `${P}/modal/regular/pinline.svg`, Title: `${P}/modal/regular/title.svg`, Type: `${P}/m15/regular/m15MaskType.png`, Rules: `${P}/modal/regular/textbox.svg` },
+    masks: { Pinline: `${P}/modal/regular/pinline.svg`, Title: `${P}/modal/regular/title.svg`, Type: `${P}/m15/regular/m15MaskType.png`, Rules: `${P}/modal/regular/textbox.svg`, Flipside: `${P}/modal/regular/reminder.svg` },
     art: ART_M15, pt: true, crown: true,
   },
 };
@@ -330,7 +330,7 @@ function packLetter(pack, l) {
   return l;
 }
 
-function packStack(pack, p, { legendary, stamp }) {
+function packStack(pack, p, { legendary, stamp, leftPage = null, flipside = null }) {
   const F = (l, mask, right = false) => {
     const m = pack.masks[mask];
     return { src: pack.file(packLetter(pack, l)), masks: m ? [m, ...(right ? [RIGHT_HALF] : [])] : (right ? [RIGHT_HALF] : []) };
@@ -351,6 +351,10 @@ function packStack(pack, p, { legendary, stamp }) {
   out.push(F(p.pinline, 'Pinline'));
   out.push(F(p.typeTitle, 'Type'));
   out.push(F(p.typeTitle, 'Title'));
+  // Modal DFC: Lasche unten links in der Farbe der anderen Seite (Maske "Flipside")
+  if (flipside && pack.masks.Flipside) out.push({ src: pack.file(packLetter(pack, flipside)), masks: [pack.masks.Flipside] });
+  // Adventure: linke Buchseite (Leisten + Seite) in der Farbe des Abenteuers (Maske "Rules (Left)")
+  if (leftPage && pack.masks.RulesLeft) out.push({ src: pack.file(packLetter(pack, leftPage)), masks: [pack.masks.RulesLeft] });
   if (pack.masks.Rules) {
     if (p.rulesRight) out.push(pack.masks.RulesRight ? { src: pack.file(packLetter(pack, p.rulesRight)), masks: [pack.masks.RulesRight] } : F(p.rulesRight, 'Rules', true));
     out.push(F(p.rules, 'Rules'));
@@ -374,6 +378,12 @@ function packFor(model) {
   return null;
 }
 
+/** true, wenn der Rahmen aus einem Transform-/Modal-DFC-Pack kommt (Symbolkreis bzw. Pfeil + Lasche im Bild). */
+export function ccDfcFrame(model) {
+  const p = packFor(model);
+  return p === PACKS.transformFront || p === PACKS.transformBack || p === PACKS.modalFront || p === PACKS.modalBack;
+}
+
 /**
  * Liefert die Ebenen (oben -> unten) für das Modell oder null, wenn der Stil
  * (noch) nicht aus Card-Conjurer-Assets gebaut werden kann.
@@ -386,7 +396,16 @@ export function ccLayers(model) {
   const fx = card.frame_effects || [];
   const pack = packFor(model);
   if (pack) {
-    return packStack(pack, frameProperties(colors, face.mana_cost, type, power), { legendary: flags.legendary, stamp: flags.holo });
+    let leftPage = null;
+    const adv = pack === PACKS.adventure && card.card_faces?.[1];
+    if (adv) leftPage = frameProperties(frameColorsFor(card, adv), adv.mana_cost, adv.type_line || '', null).rules;
+    let flipside = null;
+    const other = (pack === PACKS.modalFront || pack === PACKS.modalBack) && card.card_faces?.[1 - model.faceIdx];
+    if (other) {
+      const oc = frameColorsFor(card, other);
+      flipside = oc.length === 1 ? oc[0] : oc.length > 1 ? 'M' : /\bLand\b/.test(other.type_line || '') ? 'L' : 'A';
+    }
+    return packStack(pack, frameProperties(colors, face.mana_cost, type, power), { legendary: flags.legendary, stamp: flags.holo, leftPage, flipside });
   }
   if (L.kind && L.kind !== 'normal') return null; // Split/Battle zeichnet weiterhin der Code-Renderer
   if (L.style === 'm15') {
@@ -439,7 +458,7 @@ export async function loadLayers(layers) {
     return await Promise.all(layers.map(async (l) => ({
       ...l,
       image: l.src ? await loadImage(l.src) : null,
-      maskImages: await Promise.all((l.masks || []).map((m) => loadImage(m))),
+      maskImages: await Promise.all((l.masks || []).map((m) => (typeof m === 'string' ? loadImage(m) : m.image))),
     })));
   } catch (err) {
     console.warn('Card-Conjurer-Ebene fehlt:', err.message);
@@ -480,7 +499,7 @@ export function drawLayers(ctx, layers, W, H, scale, { borderColor } = {}) {
   const cw = Math.round(W * scale);
   const ch = Math.round(H * scale);
   // fertig zusammengesetzte Rahmen wiederverwenden (z. B. beim Umschalten von Optionen)
-  const key = `${cw}x${ch}|${borderColor || ''}|${layers.map((l) => `${l.src || l.fill}:${(l.masks || []).join(',')}:${JSON.stringify(l.bounds || '')}`).join(';')}`;
+  const key = `${cw}x${ch}|${borderColor || ''}|${layers.map((l) => `${l.src || l.fill}:${(l.masks || []).map((m) => (typeof m === 'string' ? m : m.key)).join(',')}:${JSON.stringify(l.bounds || '')}`).join(';')}`;
   let frame = frameCache.get(key);
   if (!frame) {
     frame = mkCanvas(cw, ch);
@@ -533,7 +552,7 @@ export function drawLayers(ctx, layers, W, H, scale, { borderColor } = {}) {
 
 /** Färbt die Border-Maske der Ebene "Border" (falls vorhanden) in der Randfarbe ein. */
 function recolorBorder(fx, cw, ch, color, layers) {
-  const border = layers.find((l) => (l.masks || []).some((m) => /border\.(png|svg)$/i.test(m) || /MaskBorder\.png$/.test(m)));
+  const border = layers.find((l) => (l.masks || []).some((m) => typeof m === 'string' && (/border\.(png|svg)$/i.test(m) || /MaskBorder\.png$/.test(m))));
   if (!border) return;
   const c = mkCanvas(cw, ch);
   const x = c.getContext('2d');
@@ -612,7 +631,8 @@ export async function ccPwIcons(tall, model) {
       loadImage(`${IMG}/planeswalker/abilityLineEven.png`),
       loadImage(pack?.textMask || (tall ? `${IMG}/planeswalker/tall/planeswalkerTallMaskRules.png` : `${IMG}/planeswalker/text.svg`)),
     ]);
-    return { plus, minus, neutral, lineOdd, lineEven, textMask };
+    const loyaltyMask = await loadImage(`${IMG}/planeswalker/maskLoyalty.png`).catch(() => null);
+    return { plus, minus, neutral, lineOdd, lineEven, textMask, loyaltyMask };
   } catch { return null; }
 }
 
@@ -655,7 +675,7 @@ export function matchFrameColors(ctx, layers, scan, W, H, exclude = [], extraRec
   // Bereiche: erste Maske je Ebene (ohne Rechte-Hälfte-Maske) bzw. Rechteck (bounds)
   const regions = new Map();
   for (const l of layers) {
-    const src = (l.masks || []).find((m) => !/maskRightHalf/.test(m));
+    const src = (l.masks || []).find((m) => typeof m === 'string' && !/maskRightHalf/.test(m));
     if (src) {
       const i = l.masks.indexOf(src);
       if (!regions.has(src)) regions.set(src, { img: l.maskImages[i] });
@@ -759,4 +779,136 @@ export function matchFrameColors(ctx, layers, scan, W, H, exclude = [], extraRec
   pm('apply');
   ctx.putImageData(full, 0, 0);
   pm('put');
+}
+
+// ---------- Mana- und Textsymbole (Assets/img/manaSymbols, Card Conjurer loadManaSymbols) ----------
+
+// Symbole, die Card Conjurer lädt (creator-23.js: loadManaSymbols) – Dateiname ohne Endung
+const CC_MANA = new Set([
+  ...Array.from({ length: 21 }, (_, i) => String(i)),
+  'w', 'u', 'b', 'r', 'g', 'c', 'x', 'y', 'z', 't', 'untap', 's', 'purple', 'inf', 'e', 'a', 'half',
+  'wu', 'wb', 'ub', 'ur', 'br', 'bg', 'rg', 'rw', 'gw', 'gu', '2w', '2u', '2b', '2r', '2g', 'wp', 'up', 'bp', 'rp', 'gp', 'p',
+  'wup', 'wbp', 'ubp', 'urp', 'brp', 'bgp', 'rgp', 'rwp', 'gwp', 'gup', 'cw', 'cu', 'cb', 'cr', 'cg',
+  'chaos', 'tk', 'planeswalker',
+]);
+const CC_ALIAS = { T: 't', Q: 'untap', '∞': 'inf', '½': 'half', PW: 'planeswalker', CHAOS: 'chaos', TK: 'tk' };
+
+/** URL des Card-Conjurer-Symbols für einen Code wie "{W/U}" oder null (wie getManaSymbol: auch umgekehrte Reihenfolge). */
+export function ccManaUrl(code) {
+  const inner = String(code).replace(/[{}]/g, '').toUpperCase();
+  let name = CC_ALIAS[inner] || inner.replace(/\//g, '').toLowerCase();
+  if (!CC_MANA.has(name)) name = name.split('').reverse().join('');
+  return CC_MANA.has(name) ? `/cc/img/manaSymbols/${name}.svg` : null;
+}
+
+/**
+ * Symboltabelle für den Renderer: Card-Conjurer-Symbol zuerst, Scryfall-SVG als Ersatz.
+ * oldColors: alte Farbsymbole (Card Conjurer manaPrefix "old", Karten vor Ice Age).
+ */
+export function ccSymbolMap(symbolMap, codes, { oldColors = false } = {}) {
+  const m = new Map(symbolMap);
+  for (const code of new Set(codes)) {
+    const key = symbolMap.has(code) ? code : code.toUpperCase();
+    const urls = [];
+    const c = key.replace(/[{}]/g, '');
+    if (oldColors && /^[WUBRG]$/.test(c)) urls.push(`/cc/img/manaSymbols/old/old${c.toLowerCase()}.svg`);
+    const cc = ccManaUrl(key);
+    if (cc) urls.push(cc);
+    if (symbolMap.get(key)) urls.push(symbolMap.get(key));
+    if (urls.length) m.set(key, urls);
+  }
+  return m;
+}
+
+/** Flavor-Trennlinie (Card Conjurer: manaSymbols/bar.png, Breite 96 % der Textbreite, Höhe 0,03 × Kartenhöhe) */
+export const CC_FLAVOR_BAR = '/cc/img/manaSymbols/bar.png';
+
+/** Zusatzgrafiken für Saga- und Class-Text (Card Conjurer versionSaga.js / versionClass.js). */
+export async function ccColumnImages() {
+  const get = (f) => loadImage(`${IMG}/${f}`).catch(() => null);
+  const [sagaChapter, sagaDivider, classHeader] = await Promise.all([get('saga/sagaChapter.png'), get('saga/sagaDivider.png'), get('class/header.png')]);
+  return { sagaChapter, sagaDivider, classHeader };
+}
+
+// ---------- Querformat-Karten: Split (packSplit) und Battle (packBattle) ----------
+
+/** Rahmenbuchstabe -> Dateiname in einem Pack mit den Buchstaben letters. */
+function fileLetter(l, letters) {
+  l = l.toUpperCase();
+  if (l.length > 1) l = 'L';
+  if (!letters.includes(l)) l = l === 'V' || l === 'C' ? 'A' : 'M';
+  return lc(l);
+}
+function landscapeLetter(card, face, letters) {
+  return fileLetter(frameProperties(frameColorsFor(card, face), face.mana_cost, face.type_line || '', face.power ?? null).frame, letters);
+}
+
+// Erzeugte Masken (kartengroß, halbe Auflösung): Rechtecke und weiche Übergänge, für die es
+// in einem Pack keine Maskendatei gibt (Split: Textfeld bzw. zweite Farbe je Hälfte)
+const genMasks = new Map();
+function genMask(key, draw) {
+  if (!genMasks.has(key)) {
+    const c = mkCanvas(750, 1050);
+    const x = c.getContext('2d');
+    x.scale(0.5, 0.5);
+    draw(x);
+    genMasks.set(key, { key: `gen:${key}`, image: c });
+  }
+  return genMasks.get(key);
+}
+/** Rechteck (Hochformat-Kartenkoordinaten) */
+const rectMask = (r) => genMask(`rect:${r.x},${r.y},${r.w},${r.h}`, (x) => { x.fillStyle = '#000'; x.fillRect(r.x, r.y, r.w, r.h); });
+/** Übergang entlang y: deckend oberhalb von y0 + a·(y1 − y0), transparent ab y0 + b·(y1 − y0) */
+const fadeMask = (y0, y1, a, b) => genMask(`fade:${y0},${y1},${a},${b}`, (x) => {
+  const g = x.createLinearGradient(0, y0 + a * (y1 - y0), 0, y0 + b * (y1 - y0));
+  g.addColorStop(0, 'rgba(0,0,0,1)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 1500, 2100);
+});
+
+/**
+ * Ebenen einer Split-Hälfte (oben -> unten). Das Pack hat nur die Hälften-Masken; zweifarbige
+ * Hälften werden wie die M15-Rahmen aus Rahmen-, Textfeld- und rechter Farbe zusammengesetzt
+ * (cardFrameProperties). Im Hochformat liegt "rechts" (zweite Farbe) oben in der Hälfte.
+ * y0/y1: Ausdehnung der Hälfte, box: Textfeld im Rahmenbild (vermessen an m15/split/w.png).
+ */
+function splitHalfLayers(card, face, half, y0, y1, box) {
+  const p = frameProperties(frameColorsFor(card, face), face.mana_cost, face.type_line || '', face.power ?? null);
+  const f = (l) => `${IMG}/m15/split/${fileLetter(l, 'WUBRGMALV')}.png`;
+  const hm = `${IMG}/m15/split/${half}.svg`;
+  const bm = rectMask(box);
+  const out = [];
+  if (p.rulesRight) out.push({ src: f(p.rulesRight), masks: [hm, bm, fadeMask(box.y, box.y + box.h, 0.15, 0.85)] });
+  if (p.rulesRight || fileLetter(p.rules, 'WUBRGMALV') !== fileLetter(p.frame, 'WUBRGMALV')) out.push({ src: f(p.rules), masks: [hm, bm] });
+  if (p.frameRight) out.push({ src: f(p.frameRight), masks: [hm, fadeMask(y0, y1, 0.35, 0.65)] });
+  out.push({ src: f(p.frame), masks: [hm] });
+  return out;
+}
+
+/**
+ * Ebenen für Split- und Battle-Karten oder null.
+ * Split: Hochformat-Bild (1500×2100), obere Hälfte = rechte Kartenhälfte (Maske top.svg),
+ * untere = linke (bottom.svg). Battle: Querformat-Bild (2814×2010) in Querformat-Koordinaten.
+ */
+export function ccLandscapeLayers(model) {
+  const { card, layout: L, flags } = model;
+  if (L.style !== 'm15' || !card.card_faces || card.card_faces.length < 2) return null;
+  if (L.kind === 'split') {
+    const [left, right] = card.card_faces;
+    return {
+      orient: 'portrait',
+      layers: [
+        ...splitHalfLayers(card, right, 'top', 58, 1000, { x: 913, y: 116, w: 530, h: 826 }),
+        ...splitHalfLayers(card, left, 'bottom', 1016, 1958, { x: 913, y: 1074, w: 530, h: 826 }),
+      ],
+    };
+  }
+  if (L.kind === 'battle') {
+    const layers = [];
+    if (flags.holo) layers.push({ src: `${IMG}/m15/battle/holostamp.png`, masks: [], bounds: { x: 103 / 2100, y: 657 / 1500, width: 93 / 2100, height: 186 / 1500 } });
+    layers.push({ src: `${IMG}/m15/battle/${landscapeLetter(card, card.card_faces[0], 'WUBRGMALC')}.png`, masks: [] });
+    return { orient: 'landscape', layers };
+  }
+  return null;
 }

@@ -13,7 +13,9 @@ const RARITY = {
  * Zeichnet das Symbol rechtsbündig bei (right, cy).
  * opts.plain: einfarbig schwarz ohne Kontur (Karten vor 1998).
  */
-export function drawSetSymbol(ctx, img, rarity, { right, cy, h, maxW, outline = 4, plain = false, scan = null, W = 1500, H = 2100, fixedSize = false }) {
+export function drawSetSymbol(ctx, img, rarity, { right, cy, h, maxW, outline = 4, plain = false, scan = null, W = 1500, H = 2100, fixedSize = false, official = null }) {
+  // ohne Scryfall-Form: offizielles Symbol direkt an der Layout-Position
+  if (!img && official && !plain) return drawOfficial(ctx, trimmed(official), right, cy, h, outline);
   if (!img) return 0;
   img = trimmed(img);
   const ratio = (img.naturalWidth || img.width) / (img.naturalHeight || img.height) || 1;
@@ -28,6 +30,10 @@ export function drawSetSymbol(ctx, img, rarity, { right, cy, h, maxW, outline = 
     const fit = locateSymbol(scan, img, { right, cy, dw, dh, outline, fixedSize }, W, H);
     if (fit) { right = fit.right; cy = fit.cy; dw *= fit.s; dh *= fit.s; }
   }
+  // Offizielles Set-Symbol aus Card Conjurer (setSymbols/official, Seltenheitsfarbe und Kontur
+  // sind darin enthalten): Lage und Größe wie oben bestimmt, Grafik unverändert zeichnen.
+  // Alte Karten (plain, vor 1998) waren einfarbig ohne Kontur gedruckt -> weiter per Code.
+  if (official && !plain) return drawOfficial(ctx, trimmed(official), right, cy, dh, outline);
   const res = 3; // Auflösungsfaktor für die Zwischenebenen
   const pad = outline * 2;
   const cw = Math.ceil((dw + pad * 2) * res);
@@ -90,6 +96,18 @@ export function drawSetSymbol(ctx, img, rarity, { right, cy, h, maxW, outline = 
   return dw;
 }
 
+
+/** Zeichnet ein offizielles Symbol (inkl. Kontur) rechtsbündig; dh = Höhe der Form ohne Kontur. */
+function drawOfficial(ctx, img, right, cy, dh, outline) {
+  const ratio = (img.naturalWidth || img.width) / (img.naturalHeight || img.height) || 1;
+  const th = dh + 2 * outline; const tw = th * ratio;
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, right + outline - tw, cy - th / 2, tw, th);
+  ctx.restore();
+  return Math.max(0, tw - 2 * outline);
+}
 
 const lum = (h) => { const v = parseInt(h.slice(1), 16); return ((v >> 16) & 255) * 0.299 + ((v >> 8) & 255) * 0.587 + (v & 255) * 0.114; };
 const hex = (c) => `#${c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;

@@ -1,6 +1,6 @@
 import * as api from './api.js';
 import { buildModel, renderCard, facesOf } from './render/render.js';
-import { setFontScales } from './render/textlayout.js';
+import { setFontScales, setOriginalFonts } from './render/textlayout.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { prints: [], card: null, set: null, printId: null, rendering: null, pending: false };
@@ -145,6 +145,7 @@ let fontsReady = null;
 async function deps() {
   fontsReady ||= api.fontStatus().then((st) => {
     setFontScales(Object.fromEntries(Object.entries(st).map(([fam, v]) => [fam, v.scaleX])));
+    setOriginalFonts(Object.entries(st).filter(([, v]) => v.source === 'custom').map(([fam]) => fam));
   }).catch(() => {});
   await fontsReady;
   const [symbolMap, keywords] = await Promise.all([api.symbology(), api.catalog('keyword-abilities')]);

@@ -27,7 +27,7 @@ Danach im Browser: <http://localhost:8080> (Direktlink: `http://localhost:8080/?
     Länder (mit Farbakzent), farblos, Vehikel.
   - Legendary-Krone (ab Dominaria 2018), P/T-Box, Standardländer (großes Manasymbol), Holo-Siegel,
     Randfarbe (schwarz/weiß/silber/gold).
-  - Set-Symbol von Scryfall in Seltenheitsfarbe; Sammlerinfo im jeweiligen Stil (inkl. neuem Format ab 2023).
+  - Offizielles Set-Symbol in Seltenheitsfarbe (Card Conjurer, sonst Scryfall); Sammlerinfo im jeweiligen Stil (inkl. neuem Format ab 2023).
 - **Textsatz** – an Scans echter Karten vermessen und per Pixel-Overlay geprüft (Grundlinien ±4 px):
   - Schriftgröße wie im Druck in 0,5-pt-Schritten (max. 9 pt), größte passende Größe wird gewählt.
   - Zeilenabstand 1,545 × Versalhöhe, Absatzabstand 0,62 ×, Flavor-Abstand 1,26 ×, Trennlinie.
@@ -60,14 +60,20 @@ gespeist aus den Scryfall-Daten des gewählten Drucks:
 | Rahmen 2015 | M15 „new“ (inkl. Legendary-Krone, Nyx, Snow, Devoid, Fahrzeug, Holo-Stempel, Land-/Hybrid-/Gold-Varianten) |
 | Rahmen 2015 + Transform / Modal DFC | M15 Transform Front/Back, Modal Front/Back |
 | Planeswalker (3 / 4 Fähigkeiten) | Planeswalker Regular / Tall inkl. Loyalitäts-Symbole und Fähigkeitszeilen |
-| Saga, Class, Adventure | Saga Regular, Class, Adventure |
+| Saga, Class, Adventure | Saga Regular, Class, Adventure (inkl. Kapitel-Symbolen, Level-Leisten, Buchseite in Abenteuerfarbe) |
+| Split, Battle | Split (Hälften je Farbe, zweifarbige Hälften mit Textfeld-/Rahmenübergang), Battle |
 | Rahmen 2003 | 8th Edition |
 | Rahmen 1997 | Seventh Edition |
 | Rahmen 1993 | ABU (Alpha/Beta/Unlimited) bzw. Fourth |
 
-Wasserzeichen (Gilden, Clans, Colleges …) kommen ebenfalls aus `Assets/`. Split- und Battle-Karten sowie
-alle Karten ohne `git lfs pull` zeichnet weiterhin der Code-Renderer. Von Scryfall kommen Kartendaten,
-das zugeschnittene Artwork, der Original-Scan sowie Mana- und Set-Symbole (SVG).
+Ebenfalls aus `Assets/` (wie in Card Conjurer): Wasserzeichen, Mana- und Textsymbole (`manaSymbols/`, alte
+Farbsymbole vor Ice Age), offizielle Set-Symbole je Seltenheit (`setSymbols/official/`), Flavor-Trennlinie
+(`bar.png`), Transform-Symbole (Sonne/Mond, Kompass/Land …), Planeswalker-Loyalitätssymbole und -Zeilen,
+Saga-Kapitel und -Trenner, Class-Level-Leisten. Loyalitäts-/Verteidigungs-Schild, MDFC-Pfeil und -Lasche sowie
+das Adventure-Buch sind Teil der Rahmenbilder. Der Pinsel vor dem Künstlernamen ist – wie in Card Conjurer – der
+Glyph U+FFEE der Originalschriften (Beleren Small Caps, Matrix Bold). Nur ohne `git lfs pull` (bzw. Option
+„Rahmengrafik: per Code gezeichnet“) zeichnet der Code-Renderer Rahmen und Elemente selbst; Symbole, die Card Conjurer nicht hat,
+kommen von Scryfall. Von Scryfall kommen außerdem Kartendaten, das zugeschnittene Artwork und der Original-Scan.
 
 **Abgleich mit dem Original-Scan** (Option „am Original-Scan ausrichten“, Standard an): Das Artwork wird per
 Bildregistrierung (Skalierung + Verschiebung, grob-zu-fein) exakt so ins Bildfenster gelegt wie auf dem Scan,

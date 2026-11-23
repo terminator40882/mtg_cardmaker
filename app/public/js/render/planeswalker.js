@@ -68,6 +68,11 @@ function drawCcRows(ctx, pw, L) {
   });
   x.globalCompositeOperation = 'destination-in';
   x.drawImage(ccIcons.textMask, 0, 0, W, H);
+  // in Card Conjurer liegen die Zeilen unter dem Rahmen – das Loyalitäts-Schild bleibt frei
+  if (ccIcons.loyaltyMask) {
+    x.globalCompositeOperation = 'destination-out';
+    x.drawImage(ccIcons.loyaltyMask, 0, 0, W, H);
+  }
   ctx.drawImage(c, 0, 0, W, H);
 }
 
@@ -215,6 +220,13 @@ export function drawLoyaltyCost(ctx, cost, cx, cy) {
 
 export function drawLoyaltyShield(ctx, value, S) {
   const { cx, cy, w, h } = S;
+  // Card-Conjurer-Rahmen enthalten das Schild bereits (Maske "Loyalty") -> nur die Zahl
+  if (ccIcons) {
+    // Textfeld "Loyalty" aus packPlaneswalkerRegular: x 0,806 + 0,14/2, y 0,902 + 0,0372/2 (Mitte des Schilds)
+    const tx = (0.806 + 0.07) * 1500; const ty = (0.902 + 0.0186) * 2100;
+    drawFittedLine(ctx, String(value), 'CMTitle', S.cap, tx, ty + S.cap / 2, w - 50, { align: 'center', color: '#fff' });
+    return;
+  }
   const path = (ww, hh) => {
     const x0 = cx - ww / 2;
     const x1 = cx + ww / 2;

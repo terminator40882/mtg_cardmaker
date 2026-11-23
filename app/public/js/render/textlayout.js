@@ -19,6 +19,11 @@ export function setFontScales(map) {
   for (const [fam, x] of Object.entries(map)) SCALE.set(fam, x || 1);
 }
 export const scaleOf = (family) => SCALE.get(family) || 1;
+// Schriften, die als Originaldatei (Card-Conjurer-Schrift) vorliegen – nur diese haben z. B. den
+// Pinsel-Glyph U+FFEE (Beleren Small Caps, Matrix Bold), den Card Conjurer vor den Künstlernamen setzt
+const ORIGINAL = new Set();
+export function setOriginalFonts(list) { ORIGINAL.clear(); for (const f of list) ORIGINAL.add(f); }
+export const isOriginalFont = (family) => ORIGINAL.has(family);
 export const getFontScales = () => Object.fromEntries(SCALE);
 
 export const METRICS = {
@@ -265,7 +270,18 @@ export function drawSymbol(ctx, symbols, code, x, y, d, shadow = null) {
   }
 }
 
+// Flavor-Trennlinie aus Card Conjurer (manaSymbols/bar.png); null -> per Code gezeichnet
+let flavorBarImg = null;
+export function setFlavorBarImage(img) { flavorBarImg = img || null; }
+
 function drawFlavorBar(ctx, x, y, w, c) {
+  if (flavorBarImg) {
+    // Card Conjurer: Breite 96 % der Textbreite, Höhe 0,03 × Kartenhöhe (2100); die Linie liegt
+    // bei 44 % der Bildhöhe (Zeilen 7–15 von 26) -> dort auf y zentrieren
+    const bw = w * 0.96; const bh = 0.03 * 2100;
+    ctx.drawImage(flavorBarImg, x + (w - bw) / 2, y - bh * 0.44, bw, bh);
+    return;
+  }
   const x0 = x + w * 0.005;
   const x1 = x + w * 0.995;
   const g = ctx.createLinearGradient(x0, 0, x1, 0);

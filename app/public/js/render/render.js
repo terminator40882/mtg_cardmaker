@@ -3,16 +3,16 @@ import { LAYOUTS, layoutForFrame, W, H } from './layouts.js';
 import { frameColors, BORDER_COLORS, VEHICLE_PT } from './palettes.js';
 import { drawFrameLayer, drawHolo, drawBrush, roundRect } from './frames.js';
 import { parseRules, parseFlavor, symbolsIn, smartQuotes } from './textparse.js';
-import { fitText, drawText, drawSymbol, drawFittedLine, sizeForCap, METRICS, layoutFromLines, getFontScales } from './textlayout.js';
+import { fitText, drawText, drawSymbol, drawFittedLine, sizeForCap, METRICS, layoutFromLines, getFontScales, setFlavorBarImage, isOriginalFont } from './textlayout.js';
 import { drawSetSymbol } from './setsymbol.js';
 import { loadImage, loadSymbols, ensureFonts } from './assets.js';
 import { luminance, mix } from './textures.js';
-import { drawSagaText, drawClassText } from './columns.js';
+import { drawSagaText, drawClassText, setColumnImages } from './columns.js';
 import { drawAdventure } from './adventure.js';
-import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT } from './dfc.js';
+import { dfcKind, drawDfcIcon, drawMdfcTab, drawBackPT, dfcIconUrl } from './dfc.js';
 import { renderLandscape } from './landscape.js';
 import { layoutPlaneswalker, drawPlaneswalkerText, drawLoyaltyShield as drawPwShield, setPwIcons } from './planeswalker.js';
-import { ccStatus, ccLayers, loadLayers, drawLayers, prepareLayers, ccArtBounds, drawWatermark, ccPwIcons, matchFrameColors } from './cc.js';
+import { ccStatus, ccLayers, loadLayers, drawLayers, prepareLayers, ccArtBounds, drawWatermark, ccPwIcons, matchFrameColors, ccSymbolMap, CC_FLAVOR_BAR, ccDfcFrame, ccColumnImages, ccLandscapeLayers } from './cc.js';
 import { getPool, toBitmap } from './pool.js';
 import { fitRulesVariant } from './rulesfit.js';
 import { alignArt, fitTextToScan, blockExtent, scanLines, boxEdges, sampleTextColor, cacheArtAlignment, hasArtAlignment } from './align.js';
@@ -279,6 +279,24 @@ function collectorLine(model) {
   return /^\d+$/.test(cn) ? cn.padStart(3, '0') : cn;
 }
 
+/**
+ * Pinsel vor dem Künstlernamen: wie Card Conjurer der Glyph U+FFEE der Originalschrift
+ * (Beleren Small Caps bzw. Matrix Bold), endet bei artistX (8th: plus Leerzeichen wie
+ * "\uFFEE {artist}"); ohne Originalschrift per Code gezeichnet (mittig bei cx).
+ */
+function artistBrush(ctx, family, cap, cx, baseline, size, color, artistX, space = false) {
+  if (isOriginalFont(family)) {
+    ctx.save();
+    ctx.font = `${sizeForCap(ctx, family, cap).toFixed(2)}px ${family}`;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'right';
+    ctx.fillText('\uFFEE', artistX - (space ? ctx.measureText(' ').width : 0), baseline);
+    ctx.restore();
+    return;
+  }
+  drawBrush(ctx, cx, baseline - cap * 0.45, size, color);
+}
+
 export function drawInfo(ctx, model) {
   const L = model.layout;
   const I = L.info;
@@ -304,7 +322,7 @@ export function drawInfo(ctx, model) {
     const left = `${(card.set || '').toUpperCase()} \u2022 ${(card.lang || 'en').toUpperCase()}`;
     ctx.fillText(left, I.x, I.y2);
     let x = I.x + ctx.measureText(left).width + I.cap * 1.6;
-    drawBrush(ctx, x, I.y2 - I.cap * 0.45, I.cap * 1.7, color);
+    artistBrush(ctx, 'CMArtist', I.cap * 1.05, x, I.y2, I.cap * 1.7, color, x + I.cap * 1.2);
     x += I.cap * 1.2;
     ctx.font = fs('CMArtist', I.cap * 1.05);
     ctx.fillText(face.artist, x, I.y2);
@@ -314,7 +332,7 @@ export function drawInfo(ctx, model) {
       ctx.fillText(opts.footer, I.right, I.y2);
     }
   } else if (L.style === 'm2003') {
-    drawBrush(ctx, I.x + I.cap * 1.1, I.y1 - I.cap * 0.45, I.cap * 2.1, color);
+    artistBrush(ctx, 'CMMatrix', I.cap, I.x + I.cap * 1.1, I.y1, I.cap * 2.1, color, I.x + I.cap * 2.4, true);
     ctx.font = fs('CMMatrix', I.cap);
     ctx.fillText(face.artist, I.x + I.cap * 2.4, I.y1);
     ctx.font = fs('CMInfo', I.smallCap);
@@ -396,14 +414,17 @@ export async function renderCard(canvas, model, deps) {
   const basicSym = flags.basic && flavorParas.length === 0 ? basicLandSymbol(face) : null;
   if (basicSym) codes.push(basicSym);
 
-  const ccDefs = opts.frameSource !== 'code' && (await ccStatus()).available ? ccLayers(model) : null;
-  const [art, setIcon, symbols, cc, scan] = await Promise.all([
+  const ccOk = (await ccStatus()).available;
+  const ccDefs = opts.frameSource !== 'code' && ccOk ? ccLayers(model) : null;
+  const [art, setIcon, symbols, cc, scan, , , officialSym] = await Promise.all([
     loadImage(opts.artUrl).catch(() => null),
     loadImage(model.set?.icon).catch(() => null),
-    loadSymbols(codes, oldSymbolMap(symbolMap, model)),
+    loadSymbols(codes, ccOk ? ccSymbolMap(symbolMap, codes, { oldColors: (model.card.released_at || '9999') < '1995-06-03' }) : symbolMap),
     ccDefs ? loadLayers(ccDefs) : null,
     opts.alignArt && opts.scanUrl ? loadImage(opts.scanUrl).catch(() => null) : null,
     ensureFonts(),
+    (ccOk ? loadImage(CC_FLAVOR_BAR).catch(() => null) : Promise.resolve(null)).then(setFlavorBarImage),
+    ccOk ? loadOfficialSetSymbol(model) : null,
   ]);
   perfMark('loaded');
   model.frameSource = cc ? 'cc' : 'code';
@@ -465,6 +486,7 @@ export async function renderCard(canvas, model, deps) {
       { x: 90 / W, y: 90 / H, width: (W - 180) / W, height: (H - 180) / H }] : [];
 
   setPwIcons(cc && L.kind === 'pw' ? await ccPwIcons(L.typePlate.y < 1100, model) : null);
+  setColumnImages(cc && (L.kind === 'saga' || L.kind === 'class') ? await ccColumnImages() : null);
 
   canvas.width = Math.round(W * scale);
   canvas.height = Math.round(H * scale);
@@ -481,7 +503,12 @@ export async function renderCard(canvas, model, deps) {
   ctx.fillRect(0, 0, W, H);
 
   if (L.kind === 'split' || L.kind === 'battle') {
-    model.textCap = renderLandscape(ctx, model, { art, setIcon, symbols, keywords, scale });
+    // Rahmen aus Card Conjurer (packSplit / packBattle), sonst per Code
+    const land = opts.frameSource !== 'code' && ccOk ? ccLandscapeLayers(model) : null;
+    const landLayers = land ? await loadLayers(land.layers) : null;
+    model.frameSource = landLayers ? 'cc' : 'code';
+    model.textCap = renderLandscape(ctx, model, { art, setIcon, symbols, keywords, scale, official: officialSym,
+      cc: landLayers ? { ...land, layers: landLayers } : null });
     ctx.restore();
     return model;
   }
@@ -546,14 +573,17 @@ export async function renderCard(canvas, model, deps) {
   const N = L.nameText;
   // Doppelseitige Karten: Symbol vor dem Namen (nur moderne Rahmen)
   const dfc = L.style === 'm15' || L.style === 'm2003' ? dfcKind(model.card) : null;
-  const nameShift = dfc ? drawDfcIcon(ctx, dfc, model.faceIdx === 1, model.card.frame_effects, L.cost.cy + 1) : 0;
+  // Card-Conjurer-DFC-Rahmen: Symbolkreis/Pfeil und MDFC-Lasche sind Teil des Rahmenbilds
+  const ccDfc = !!cc && !!dfc && ccDfcFrame(model);
+  const ccIcon = ccDfc ? await loadImage(dfcIconUrl(dfc, model.faceIdx === 1, model.card.frame_effects || [])).catch(() => null) : null;
+  const nameShift = dfc ? drawDfcIcon(ctx, dfc, model.faceIdx === 1, model.card.frame_effects, L.cost.cy + 1, null, { cc: ccDfc, ccIcon }) : 0;
   drawFittedLine(ctx, smartQuotes(face.name), N.family, N.cap, N.x + nameShift, N.baseline,
     N.right - N.x - nameShift - cw - (cw ? 20 : 0), { color: headColor, shadow: headShadow });
 
   // Typzeile + Set-Symbol
   const plainSymbol = (model.card.released_at || '9999') < '1998-06-01';
   const symW = drawSetSymbol(ctx, setIcon, model.card.rarity, { ...L.setSym, outline: L.setSym.outline ?? (retro ? 3 : 4), plain: plainSymbol,
-    scan: opts.alignArt ? scan : null, W, H, fixedSize: L.style === 'm15' });
+    scan: opts.alignArt ? scan : null, W, H, fixedSize: L.style === 'm15', official: officialSym });
   const T = L.typeText;
   // Farbindikator (Punkt vor der Typzeile, z. B. Rückseiten von DFCs) – Card Conjurer m15/ciPips
   const ciShift = face.color_indicator && L.style !== 'retro' ? await drawColorIndicator(ctx, face.color_indicator, T) : 0;
@@ -564,7 +594,7 @@ export async function renderCard(canvas, model, deps) {
   // Regeltext
   let textBox = { ...L.text };
   if (dfc === 'mdfc' && model.card.card_faces?.length === 2) {
-    drawMdfcTab(ctx, model.card.card_faces[1 - model.faceIdx], model.faceIdx === 1, symbols, model.card.color_identity);
+    drawMdfcTab(ctx, model.card.card_faces[1 - model.faceIdx], model.faceIdx === 1, symbols, model.card.color_identity, { cc: ccDfc });
     textBox = { ...textBox, h: textBox.h - 80 };
   }
   if (dfc === 'transform' && model.faceIdx === 0 && model.card.card_faces?.length === 2 && L.ptPlate) {
@@ -893,12 +923,24 @@ export function historicTypeLine(type, released, text = '', oracle = '') {
   return t;
 }
 
-/** Karten vor Ice Age (Juni 1995) zeigen die alten Farbsymbole (Card Conjurer manaSymbols/old). */
-function oldSymbolMap(symbolMap, model) {
-  if (!((model.card.released_at || '9999') < '1995-06-03') || model.frameSource === 'code-only') return symbolMap;
-  const m = new Map(symbolMap);
-  for (const c of 'WUBRG') m.set(`{${c}}`, `/cc/img/manaSymbols/old/old${c.toLowerCase()}.svg`);
-  return m;
+/**
+ * Offizielles Set-Symbol aus Card Conjurer (Assets/img/setSymbols/official/<set>-<rarity>.svg,
+ * wie fetchSetSymbol() in creator-23.js). Set-Code: zuerst der des Scryfall-Symbols (Promo-Sets
+ * nutzen das Symbol ihres Hauptsets), dann der Druck selbst.
+ */
+const SET_ALIASES = { anb: 'ana', tsb: 'tsp', pmei: 'sld' };
+const PNG_SETS = new Set(['moc', 'ltr', 'ltc', 'cmm', 'who', 'scd', 'woe', 'wot', 'woc', 'lci', 'lcc', 'mkm', 'mkc', 'otj', 'otc']);
+async function loadOfficialSetSymbol(model) {
+  const r = { common: 'c', uncommon: 'u', rare: 'r', mythic: 'm', special: 's', bonus: 's' }[model.card.rarity];
+  if (!r) return null;
+  const iconCode = /\/sets\/([a-z0-9]+)\.svg/i.exec(model.set?.icon_svg_uri || '')?.[1];
+  const codes = [...new Set([iconCode, model.card.set].filter(Boolean).map((c) => SET_ALIASES[c.toLowerCase()] || c.toLowerCase()))];
+  for (const c of codes) {
+    for (const ext of PNG_SETS.has(c) ? ['png', 'svg'] : ['svg', 'png']) {
+      try { return await loadImage(`/cc/img/setSymbols/official/${c}-${r}.${ext}`); } catch { /* nächste Variante */ }
+    }
+  }
+  return null;
 }
 
 function basicLandSymbol(face) {

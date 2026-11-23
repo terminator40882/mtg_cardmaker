@@ -11,12 +11,17 @@ const ALLOWED_ASSET_HOSTS = new Set(['cards.scryfall.io', 'svgs.scryfall.io', 'c
 
 const DAY = 24 * 60 * 60 * 1000;
 
-// Scryfall bittet um 50–100 ms Abstand zwischen Anfragen -> serialisierte Queue.
+// Scryfall bittet bei api.scryfall.com um 50–100 ms Abstand zwischen Anfragen -> serialisierte
+// Queue. Bei mehreren Worker-Prozessen (Cluster) wird der Abstand je Worker vervielfacht,
+// damit die Gesamtrate gleich bleibt.
+import { availableParallelism } from 'node:os';
+const WORKERS = Math.max(1, Number(process.env.WEB_CONCURRENCY) || availableParallelism());
+const API_GAP_MS = 110 * WORKERS;
 let queue = Promise.resolve();
 let last = 0;
 function throttled(fn) {
   const run = queue.then(async () => {
-    const wait = Math.max(0, last + 110 - Date.now());
+    const wait = Math.max(0, last + API_GAP_MS - Date.now());
     if (wait) await new Promise((r) => setTimeout(r, wait));
     last = Date.now();
     return fn();
@@ -24,6 +29,21 @@ function throttled(fn) {
   queue = run.catch(() => {});
   return run;
 }
+
+// Bilder/SVGs kommen vom CDN (*.scryfall.io) – dort gilt kein Rate-Limit; nur begrenzte
+// Parallelität, und gleiche URLs werden nur einmal gleichzeitig geladen.
+const ASSET_PARALLEL = 8;
+let assetActive = 0;
+const assetWaiting = [];
+async function limited(fn) {
+  if (assetActive >= ASSET_PARALLEL) await new Promise((r) => assetWaiting.push(r));
+  assetActive++;
+  try { return await fn(); } finally {
+    assetActive--;
+    assetWaiting.shift()?.();
+  }
+}
+const inflight = new Map();
 
 export class ScryfallError extends Error {
   constructor(status, message) {
@@ -59,7 +79,14 @@ export async function asset(url) {
   }
   const cached = await cache.getBlob(url);
   if (cached) return cached;
-  const res = await throttled(() => fetch(url, { headers: { 'User-Agent': HEADERS['User-Agent'], Accept: '*/*' } }));
+  if (!inflight.has(url)) {
+    inflight.set(url, fetchAsset(url, u).finally(() => inflight.delete(url)));
+  }
+  return inflight.get(url);
+}
+
+async function fetchAsset(url, u) {
+  const res = await limited(() => fetch(url, { headers: { 'User-Agent': HEADERS['User-Agent'], Accept: '*/*' } }));
   if (!res.ok) throw new ScryfallError(res.status, `Bild konnte nicht geladen werden (${res.status})`);
   let type = res.headers.get('content-type') || 'application/octet-stream';
   let data = Buffer.from(await res.arrayBuffer());
@@ -165,6 +192,12 @@ export async function findPrints(name) {
 export async function getCard(id) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new ScryfallError(400, 'Ungültige Karten-ID');
   return apiGet(`/cards/${id}`, 7 * DAY);
+}
+
+/** Karte über Set-Code und Sammlernummer (für Werkzeuge wie tools/delta.mjs) */
+export async function getCardBySet(set, cn) {
+  if (!/^[a-z0-9]{2,6}$/i.test(set) || !/^[\w\-★†]{1,10}$/u.test(cn)) throw new ScryfallError(400, 'Ungültige Angabe');
+  return apiGet(`/cards/${set.toLowerCase()}/${encodeURIComponent(cn)}`);
 }
 
 export async function getSet(code) {

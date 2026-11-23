@@ -1,8 +1,12 @@
+import cluster from 'node:cluster';
+import { availableParallelism } from 'node:os';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as sf from './scryfall.js';
 import { fontCss, FONTS_DIR, FONTSOURCE_DIR } from './fonts.js';
+import { ccStatus, CC_IMG_DIR } from './ccassets.js';
+import { printed } from './mtgjson.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(here, '..', 'public');
@@ -30,6 +34,11 @@ app.get('/api/prints', wrap(async (req, res) => {
 }));
 
 app.get('/api/card/:id', wrap(async (req, res) => res.json(await sf.getCard(req.params.id))));
+app.get('/api/card-by/:set/:cn', wrap(async (req, res) => res.json(await sf.getCardBySet(req.params.set, req.params.cn))));
+// Gedruckter Text eines Drucks (MTGJSON); leer, wenn unbekannt
+app.get('/api/printed/:set/:id', wrap(async (req, res) => {
+  res.json({ faces: await printed(req.params.set, req.params.id, String(req.query.name || '')).catch(() => null) });
+}));
 app.get('/api/set/:code', wrap(async (req, res) => {
   const set = await sf.getSet(req.params.code);
   res.json({ ...set, icon: sf.assetPath(set.icon_svg_uri) });
@@ -61,6 +70,33 @@ app.get('/api/fonts', wrap(async (req, res) => res.json((await fontCss()).status
 app.use('/fonts/custom', express.static(FONTS_DIR, { fallthrough: false }));
 app.use('/fonts/fallback', express.static(FONTSOURCE_DIR, { fallthrough: false }));
 
+// Card-Conjurer-Rahmengrafiken (Ordner Assets/ im Repo, per Git LFS)
+app.get('/api/cc', wrap(async (req, res) => res.json(await ccStatus())));
+app.use('/cc/img', express.static(CC_IMG_DIR, { fallthrough: false, maxAge: '7d' }));
+
 app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
 
-app.listen(PORT, () => console.log(`MTG Cardmaker läuft auf http://localhost:${PORT}`));
+// Ein Worker pro CPU-Kern (WEB_CONCURRENCY überschreibt die Anzahl). Die Worker teilen sich
+// den Port; der Festplatten-Cache ist prozessübergreifend (atomare Schreibvorgänge).
+export const WORKERS = Math.max(1, Number(process.env.WEB_CONCURRENCY) || availableParallelism());
+
+if (cluster.isPrimary && WORKERS > 1) {
+  console.log(`MTG Cardmaker: starte ${WORKERS} Worker auf http://localhost:${PORT}`);
+  for (let i = 0; i < WORKERS; i++) cluster.fork();
+  // abgestürzte Worker ersetzen (nicht beim regulären Beenden)
+  cluster.on('exit', (w, code, signal) => {
+    if (signal === 'SIGTERM' || signal === 'SIGINT' || code === 0) return;
+    console.error(`Worker ${w.process.pid} beendet (${signal || code}) – starte neu`);
+    cluster.fork();
+  });
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, () => {
+      for (const w of Object.values(cluster.workers)) w.process.kill(sig);
+      process.exit(0);
+    });
+  }
+} else {
+  app.listen(PORT, () => {
+    if (WORKERS === 1) console.log(`MTG Cardmaker läuft auf http://localhost:${PORT}`);
+  });
+}

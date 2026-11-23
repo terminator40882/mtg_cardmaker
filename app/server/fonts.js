@@ -4,7 +4,7 @@
 // die per npm lokal installiert sind (keine CDNs). Die Auswahl (Tinos für MPlantin,
 // PT Serif Bold für Beleren) wurde per Pixel-Korrelation gegen Kartenscans aus
 // ~90 freien Schriften ermittelt.
-import { readdir } from 'node:fs/promises';
+import { readdir, open } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,16 +18,29 @@ const LATIN_EXT = 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02
 // family: Name im Canvas; custom: akzeptierte Dateinamen (klein, nur a-z0-9); fallback: fontsource-Datei
 const ROLES = [
   // scaleX: horizontale Korrektur der Ersatzschrift, per Pixel-Vergleich mit Kartenscans ermittelt
-  { family: 'CMTitle', custom: ['belerenbold', 'beleren2016bold', 'belerenbold2016', 'beleren'], fallback: ['pt-serif', '700-normal'], scaleX: 0.93 },
+  { family: 'CMTitle', custom: ['belerenbold', 'beleren2016bold', 'belerenbold2016', 'belerenb', 'beleren'], fallback: ['pt-serif', '700-normal'], scaleX: 0.93 },
   { family: 'CMRules', custom: ['mplantin', 'mplantinregular', 'plantinmtpro', 'plantinmtproregular'], fallback: ['tinos', '400-normal'], scaleX: 1.115 },
-  { family: 'CMRulesItalic', custom: ['mplantinitalic', 'mplantinit', 'plantinmtproitalic'], fallback: ['tinos', '400-italic'], scaleX: 1.054 },
+  { family: 'CMRulesItalic', custom: ['mplantinitalic', 'mplantinit', 'mplantini', 'plantinmtproitalic'], fallback: ['tinos', '400-italic'], scaleX: 1.054 },
   { family: 'CMInfo', custom: ['gothammedium', 'relaymedium', 'relay'], fallback: ['alegreya-sans', '500-normal'], scaleX: 1 },
-  { family: 'CMArtist', custom: ['belerensmallcaps', 'beleren2016smallcapsbold', 'belerensmallcapsbold'], fallback: ['alegreya-sans', '700-normal'], scaleX: 1 },
+  { family: 'CMArtist', custom: ['belerensmallcaps', 'beleren2016smallcapsbold', 'belerensmallcapsbold', 'belerenbsc'], fallback: ['alegreya-sans', '700-normal'], scaleX: 1 },
   { family: 'CMRetroTitle', custom: ['goudymedieval', 'goudymediaeval'], fallback: ['alegreya', '500-normal'], scaleX: 1 },
   { family: 'CMMatrix', custom: ['matrixbold', 'matrixb', 'matrix'], fallback: ['pt-serif', '700-normal'], scaleX: 0.93 },
 ];
 
 const FORMAT = { ttf: 'truetype', otf: 'opentype', woff: 'woff', woff2: 'woff2' };
+
+/** true, wenn die Datei nur ein Git-LFS-Pointer ist (Repo ohne "git lfs pull" geklont). */
+async function isLfsPointer(file) {
+  try {
+    const fh = await open(file, 'r');
+    const buf = Buffer.alloc(40);
+    await fh.read(buf, 0, 40, 0);
+    await fh.close();
+    return buf.toString('utf8').startsWith('version https://git-lfs');
+  } catch {
+    return true;
+  }
+}
 
 async function customFonts() {
   try {
@@ -36,6 +49,7 @@ async function customFonts() {
     for (const f of files) {
       const ext = path.extname(f).slice(1).toLowerCase();
       if (!FORMAT[ext]) continue;
+      if (await isLfsPointer(path.join(FONTS_DIR, f))) continue; // ohne "git lfs pull" nur Platzhalter
       map.set(path.basename(f, path.extname(f)).toLowerCase().replace(/[^a-z0-9]/g, ''), f);
     }
     return map;

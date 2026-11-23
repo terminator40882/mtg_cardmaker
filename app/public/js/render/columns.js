@@ -72,23 +72,31 @@ export function drawSagaText(ctx, model, L, pal, symbols, keywords) {
   for (const ch of chapters) {
     sections.push({ kind: 'chapter', numerals: ch.numerals, paras: parse(ch.text), x: L.text.x, w: L.text.w });
   }
-  // Reminder-Bereich hat feste Höhe, die Kapitel teilen sich den Rest gleichmäßig
+  // Reminder-Bereich hat feste Höhe; die Kapitel bekommen Höhe nach Inhalt (wie gedruckt),
+  // übriger Platz wird gleichmäßig verteilt
   const remH = sections[0]?.kind === 'reminder' ? L.saga.reminderH : 0;
   const chSections = sections.filter((x) => x.kind === 'chapter');
-  const chH = (L.box.h - remH) / Math.max(1, chSections.length);
-  const regions = sections.map((x) => {
-    if (x.kind === 'reminder') return { y: L.box.y, h: remH };
-    const i = chSections.indexOf(x);
-    return { y: L.box.y + remH + i * chH, h: chH };
-  });
+  const avail = L.box.h - remH;
   const step = L.rules.step;
   let cap = opts.fontCap || L.rules.maxCap;
   let items;
   for (; cap >= L.rules.minCap; cap -= step) {
     items = sections.map((x) => (x.paras.length ? layoutAll(ctx, x.paras, cap, x.w, METRICS) : null));
-    const ok = items.every((it, i) => !it || (!it.overflow && it.height + cap * 1.2 <= regions[i].h));
+    const remOk = !items[0] || sections[0].kind !== 'reminder' || (!items[0].overflow && items[0].height + cap * 1.0 <= remH);
+    const need = sections.reduce((a, x, i) => (x.kind === 'chapter' && items[i] ? a + items[i].height + cap * 1.6 : a), 0);
+    const ok = remOk && need <= avail && items.every((it) => !it || !it.overflow);
+    model._fitOk = ok;
     if (opts.fontCap || ok) break;
   }
+  const chNeed = sections.map((x, i) => (x.kind === 'chapter' ? (items[i] ? items[i].height : 0) + cap * 1.6 : 0));
+  const extra = Math.max(0, (avail - chNeed.reduce((a, b) => a + b, 0)) / Math.max(1, chSections.length));
+  let yy = L.box.y + remH;
+  const regions = sections.map((x, i) => {
+    if (x.kind === 'reminder') return { y: L.box.y, h: remH };
+    const r = { y: yy, h: chNeed[i] + extra };
+    yy += r.h;
+    return r;
+  });
   const res = {
     cap,
     rows: sections.map((x, i) => {
@@ -231,6 +239,7 @@ export function drawClassText(ctx, model, L, pal, symbols, keywords) {
         y += padTop;
       }
     });
+    model._fitOk = !overflow && y <= L.box.y + L.box.h;
     if (opts.fontCap || (!overflow && y <= L.box.y + L.box.h)) break;
   }
   for (const f of flow) {

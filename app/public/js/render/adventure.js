@@ -74,6 +74,7 @@ export function drawAdventure(ctx, model, L, pal, symbols, keywords, exclude) {
       okR = !pr.collides;
     }
     pick = { cap, l, pr: pr || (r && place(r, A.right, {})) };
+    model._fitOk = okL && okR;
     if (opts.fontCap || (okL && okR)) break;
   }
   if (pick.l) drawText(ctx, place(pick.l, A.left, {}), symbols, { flavorBar: opts.flavorBar !== false });

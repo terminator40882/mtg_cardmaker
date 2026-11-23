@@ -45,6 +45,8 @@
       <form class="options" id="options">
         <fieldset>
           <legend>Text</legend>
+          <label><input type="checkbox" id="opt-printed" checked> Gedruckter Text dieses Drucks (MTGJSON) statt Oracle-Text</label>
+          <label><input type="checkbox" id="opt-copylayout" checked> Zeilenlayout vom Original übernehmen (nur unveränderter Text)</label>
           <label><input type="checkbox" id="opt-flavor" checked> Flavortext anzeigen</label>
           <label><input type="checkbox" id="opt-flavorbar" checked> Trennlinie vor Flavortext (M15)</label>
           <label><input type="checkbox" id="opt-reminder" checked> Reminder-Text anzeigen</label>
@@ -56,6 +58,12 @@
         </fieldset>
         <fieldset>
           <legend>Rahmen</legend>
+          <label>Rahmengrafik
+            <select id="opt-source">
+              <option value="cc">Card-Conjurer-Assets</option>
+              <option value="code">per Code gezeichnet</option>
+            </select>
+          </label>
           <label>Stil
             <select id="opt-frame">
               <option value="auto">wie Original</option>
@@ -80,6 +88,8 @@
         </fieldset>
         <fieldset>
           <legend>Artwork</legend>
+          <label><input type="checkbox" id="opt-align" checked> am Original-Scan ausrichten</label>
+          <label><input type="checkbox" id="opt-matchcolors" checked> Rahmenfarben an den Scan angleichen</label>
           <label>Zoom <input type="range" id="art-zoom" min="1" max="2" step="0.01" value="1"></label>
           <label>Horizontal <input type="range" id="art-dx" min="-1" max="1" step="0.01" value="0"></label>
           <label>Vertikal <input type="range" id="art-dy" min="-1" max="1" step="0.01" value="0"></label>
@@ -100,6 +110,7 @@
           <button type="button" id="download">PNG herunterladen</button>
         </fieldset>
         <p class="muted small" id="font-info"></p>
+        <p class="muted small" id="cc-info"></p>
       </form>
     </section>
   </main>

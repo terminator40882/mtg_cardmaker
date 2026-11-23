@@ -75,6 +75,7 @@ function renderGrid() {
 
 // ---------- Auswahl & Rendering ----------
 async function selectPrint(id) {
+  if (globalThis.__perf) globalThis.__perf.push(['select', performance.now()]);
   state.printId = id;
   document.querySelectorAll('.print').forEach((el) => el.classList.toggle('active', el.dataset.id === id));
   $('status').textContent = 'Lade Karte …';
@@ -84,8 +85,12 @@ async function selectPrint(id) {
     // "The List"/Mystery-Booster-Reprints tragen Set & Nummer des Originals (z. B. "CLB-187")
     const m = /^(plst|plist|mb1|fmb1|pmb1)$/.test(card.set) && /^([A-Za-z0-9]+)-(.+)$/.exec(card.collector_number);
     if (m) card = { ...card, set: m[1].toLowerCase(), collector_number: m[2] };
-    const set = await api.set(card.set).catch(() => null);
+    const [set, printed] = await Promise.all([
+      api.set(card.set).catch(() => null),
+      api.printed(card.set, card.id, card.name).catch(() => null),
+    ]);
     if (state.printId !== id) return;
+    card = { ...card, printed };
     state.card = card;
     state.set = set;
     const faces = facesOf(card);
@@ -117,14 +122,21 @@ function currentOptions(scale = 1) {
   return {
     face,
     frame: $('opt-frame').value,
+    frameSource: $('opt-source').value,
     border: $('opt-border').value,
     showFlavor: $('opt-flavor').checked,
     showReminder: $('opt-reminder').checked,
+    printedText: $('opt-printed').checked,
     fontCap: Number($('opt-size').value) || null,
     flavorBar: $('opt-flavorbar').checked,
     footer: $('opt-footer').value.trim(),
     art: { zoom: Number($('art-zoom').value), dx: Number($('art-dx').value), dy: Number($('art-dy').value) },
     artUrl: api.artUrl(state.card.id, hasFaceArt ? face : 0),
+    alignArt: $('opt-align').checked,
+    workers: !globalThis.__noWorkers,
+    copyLayout: $('opt-copylayout').checked,
+    matchColors: $('opt-matchcolors').checked,
+    scanUrl: faceImage(state.card, face).png ? `/asset?u=${encodeURIComponent(faceImage(state.card, face).png)}` : null,
     scale,
   };
 }
@@ -139,13 +151,16 @@ async function deps() {
   return { symbolMap, keywords };
 }
 
+let renderCount = 0;
 function scheduleRender() {
   if (state.rendering) { state.pending = true; return; }
   state.rendering = (async () => {
     try {
       const model = buildModel(state.card, state.set, currentOptions(1));
       await renderCard($('card'), model, await deps());
-      $('status').textContent = model.textCap ? `Regeltext: Versalhöhe ${model.textCap.toFixed(2)} px${$('opt-size').value ? '' : ' (automatisch angepasst)'}` : '';
+      window.__lastModel = { layout: model.layout, textCap: model.textCap, frameSource: model.frameSource };
+      document.body.dataset.rendered = `${state.card.id}:${model.opts.face}:${++renderCount}`;
+      $('status').textContent = model.textCap ? `Regeltext: Versalhöhe ${model.textCap.toFixed(2)} px${$('opt-size').value ? '' : ' (automatisch angepasst)'}${model.layoutCopied ? ' · Zeilenlayout vom Original übernommen' : ''}` : '';
     } catch (err) {
       console.error(err);
       $('status').textContent = `Fehler beim Rendern: ${err.message}`;
@@ -157,7 +172,7 @@ function scheduleRender() {
   });
 }
 
-for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-reminder', 'opt-size', 'opt-frame', 'opt-border', 'opt-footer', 'art-zoom', 'art-dx', 'art-dy']) {
+for (const id of ['opt-flavor', 'opt-flavorbar', 'opt-reminder', 'opt-printed', 'opt-size', 'opt-source', 'opt-frame', 'opt-border', 'opt-footer', 'opt-align', 'opt-copylayout', 'opt-matchcolors', 'art-zoom', 'art-dx', 'art-dy']) {
   $(id).addEventListener('input', scheduleRender);
 }
 $('opt-face').addEventListener('input', () => { updateOriginal(); scheduleRender(); });
@@ -191,6 +206,13 @@ $('download').addEventListener('click', async () => {
 
 // Schriftgrößen-Auswahl
 for (let s = 50; s >= 20; s -= 1) $('opt-size').insertAdjacentHTML('beforeend', `<option value="${s}">${s} px Versalhöhe</option>`);
+
+// Hinweis zu den Card-Conjurer-Assets
+fetch('/api/cc').then((r) => r.json()).then((st) => {
+  $('cc-info').textContent = st.available
+    ? 'Rahmengrafiken: Card-Conjurer-Assets aus Assets/.'
+    : `Card-Conjurer-Assets nicht verfügbar (${st.reason}) – Rahmen werden per Code gezeichnet.`;
+}).catch(() => {});
 
 // Hinweis zu Schriften
 api.fontStatus().then((st) => {

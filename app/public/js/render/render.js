@@ -457,7 +457,9 @@ export async function renderCard(canvas, model, deps) {
     // Varianten: Oracle-Text enthält oft Reminder-Text, der auf diesem Druck fehlt; ohne gedruckten
     // Text außerdem die Wortlaute früherer Epochen (die nach Datum erwartete zuerst)
     const texts = [{ label: expected?.label || null, text: expected ? expected.text : face.oracle_text }];
-    for (const v of [{ label: null, text: face.oracle_text }, ...wordings]) {
+    // digitale Karten (Arena/MTGO): Bilder zeigen eine andere Schrift, der Scan-Vergleich taugt nicht
+    // zur Wahl des Wortlauts -> nur der nach Datum erwartete
+    for (const v of model.card.digital ? [] : [{ label: null, text: face.oracle_text }, ...wordings]) {
       if (!texts.some((t) => t.text === v.text)) texts.push(v);
     }
     rulesVariants = [];
